@@ -32,7 +32,7 @@ LOGO_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" v
 </svg>'''
 
 
-@app.route('/static/logo.png')
+@app.route('/static/logo.svg')
 def logo():
     return Response(LOGO_SVG, mimetype='image/svg+xml')
 
@@ -44,7 +44,7 @@ LOGIN_HTML = '''<!doctype html>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>JNTUACEA - Academic Record Book</title>
-    <link rel="icon" href="/static/logo.png" type="image/svg+xml" />
+    <link rel="icon" href="/static/logo.svg" type="image/svg+xml" />
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet" />
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css" rel="stylesheet" />
     <style type="text/css">
@@ -72,7 +72,7 @@ LOGIN_HTML = '''<!doctype html>
         <div class="container d-flex justify-content-center">
             <div class="row align-items-center">
                 <div class="col-auto">
-                    <img src="/static/logo.png" alt="JNTUACEA" class="img-fluid responsive-img" />
+                    <img src="/static/logo.svg" alt="JNTUACEA" class="img-fluid responsive-img" />
                 </div>
                 <div class="col-auto p-0">
                     <span class="text-primary d-block responsive-text p-0"><b>JNTUA College of Engineering Ananthapuramu</b></span>
@@ -138,7 +138,7 @@ DASH_HTML = '''<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Attendance Result — JNTUACEA</title>
-<link rel="icon" href="/static/logo.png" type="image/svg+xml">
+<link rel="icon" href="/static/logo.svg" type="image/svg+xml">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#F4F6F9;--card:#fff;--border:#E5E9F0;--ink:#1A1F2E;--muted:#8892A0;
@@ -282,8 +282,13 @@ def _card(bar, pct_color, pct, name, total, present, absent, advice_cls, advice,
             % (bar, pct_color, pct, name, total, present, absent, advice_cls, advice, det_rows))
 
 
-@app.route('/', methods=['GET', 'POST'])
-def index():
+@app.route('/', methods=['GET', 'POST'], defaults={'path': ''})
+@app.route('/api/index', methods=['GET', 'POST'], defaults={'path': ''})
+@app.route('/<path:path>', methods=['GET', 'POST'])
+def index(path):
+    # Serve the logo from any rewritten path (Vercel rewrite-proof)
+    if path in ('static/logo.png', 'static/logo.svg', 'api/index/static/logo.svg'):
+        return Response(LOGO_SVG, mimetype='image/svg+xml')
     if request.method == 'GET':
         st = scraper.portal_status()
         if st == 'open':
