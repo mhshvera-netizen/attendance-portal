@@ -10,6 +10,7 @@ Student flow exactly like the popular JNTUA attendance app:
 from flask import Flask, request, render_template_string, Response
 
 import os
+import re
 import sys
 import traceback
 
@@ -136,6 +137,9 @@ LOGIN_HTML = '''<!doctype html>
                             <input type="submit" value="Login" class="btn btn-success" />
                         </div>
                     </form>
+                    <div class="d-grid mt-2">
+                        <a href="/entry" class="btn btn-outline-secondary">&#9998; Enter attendance manually instead</a>
+                    </div>
                 </div>
                 <p class="text-center mt-2" style="color:#66748f;font-size:12px">
                     We check your attendance on the official portal using your own credentials.
@@ -259,7 +263,9 @@ text-align:left;padding:5px 8px;border-bottom:1px solid var(--border)}
   <div class="action-row">
     <a class="btn btn-navy" href="/">&#128260; Re-check</a>
     <a class="btn" href="{{ portal }}" target="_blank" rel="noopener">Official Portal &#8599;</a>
+    <a class="btn" href="/entry">&#9998; Enter Totals</a>
   </div>
+  {% if note %}<div class="alert alert-info" style="font-size:13.5px;margin:0 0 14px">{{ note|safe }}</div>{% endif %}
   <div class="section-head"><span class="sh-label">Subjects</span><span class="sh-line"></span>
     <span class="sh-badge">{{ n_subjects }} subjects</span></div>
   <div class="search-wrap"><input id="subject-search" placeholder="Search subjects&hellip;"
@@ -279,6 +285,131 @@ def _detail_name(details):
         if 'name' in k.lower() and v:
             return str(v).strip()
     return ''
+
+
+def parse_totals(text):
+    """Parse subject lines: 'Operating Systems 36/40', 'DBMS total 40 present 36',
+    'Data Structures 40 36' -> [{'name','total','present'}]"""
+    rows = []
+    for line in (text or '').splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        present = total = None
+        m = re.search(r'(\d{1,3})\s*/\s*(\d{1,3})', line)
+        if m:
+            present, total = int(m.group(1)), int(m.group(2))
+        else:
+            low = line.lower()
+            mt = re.search(r'total\s*[=:]?\s*(\d{1,3})', low)
+            mp = re.search(r'present\s*[=:]?\s*(\d{1,3})', low)
+            if mt and mp:
+                total, present = int(mt.group(1)), int(mp.group(1))
+            else:
+                nums = re.findall(r'\d{1,3}', line)
+                if len(nums) >= 2:
+                    total, present = int(nums[-2]), int(nums[-1])
+        if total is None or present is None:
+            continue
+        name = re.sub(r'\d{1,3}\s*/\s*\d{1,3}', ' ', line)
+        name = re.sub(r'(?i)total\s*[=:]?\s*\d{1,3}', ' ', name)
+        name = re.sub(r'(?i)present\s*[=:]?\s*\d{1,3}', ' ', name)
+        name = re.sub(r'\d{1,3}', ' ', name)
+        name = name.strip(' :;,-.|')
+        if not name or len(name) < 2 or not (1 <= present <= total <= 600):
+            continue
+        rows.append({'name': name, 'total': total, 'present': present})
+    return rows
+
+
+# ------------------------------------------------------------ manual entry --
+ENTRY_HTML = '''<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Enter Attendance — JNTUACEA</title>
+<link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+<style>
+  body { background-color: #F5F3EE; }
+  .card { margin-top: 14px; }
+  textarea { font-family: monospace; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="container-fluid bg-white p-3">
+  <div class="container d-flex justify-content-center">
+    <div class="row align-items-center">
+      <div class="col-auto"><img src="/static/logo.svg" alt="JNTUACEA" class="img-fluid" style="max-width:80px;border-radius:50%"></div>
+      <div class="col-auto p-0">
+        <span class="text-primary d-block" style="font-size:1.05em"><b>JNTUA College of Engineering Ananthapuramu</b></span>
+        <span class="text-primary d-block" style="font-size:0.85em">(Accredited by NAAC with &rsquo;A&rsquo; Grade)</span>
+        <span class="text-success d-block" style="font-size:1.05em"><b>Student Academic Record Book</b></span>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="container" style="max-width:720px">
+  <div class="card mt-3 p-4">
+    <h4>Quick Entry — Enter Your Attendance</h4>
+    <br>
+    <div class="alert alert-info" style="font-size:14px">
+      <b>2-minute way that always works.</b> Open the
+      <a href="https://jntuaceastudents.classattendance.in/" target="_blank" rel="noopener"><b>official portal &#8599;</b></a>
+      on your phone, look at each subject, and type the numbers below —
+      one subject per line: <b>Subject Name &nbsp;Present/Total</b>.
+      <br>Example: <code>Operating Systems 36/40</code> &nbsp;or&nbsp;
+      <code>DBMS total 40 present 36</code>
+    </div>
+    {% if err %}<div class="alert alert-danger">{{ err }}</div>{% endif %}
+    <form action="/entry" method="post">
+      <div class="mb-3">
+        <label class="form-label"><b>Roll Number</b></label>
+        <input type="text" class="form-control" name="roll" id="roll" required placeholder="e.g. 23001A0204">
+      </div>
+      <div class="mb-3">
+        <label class="form-label"><b>Your Name</b></label>
+        <input type="text" class="form-control" name="name" id="name" placeholder="e.g. Sai Kumar">
+      </div>
+      <div class="mb-3">
+        <label class="form-label"><b>Subjects (one per line)</b></label>
+        <textarea class="form-control" name="subjects" id="subjects" rows="9" required
+          placeholder="Operating Systems 36/40&#10;Database Management Systems 35/40&#10;Probability and Statistics 25/40"></textarea>
+      </div>
+      <div class="d-grid">
+        <button type="submit" class="btn btn-success btn-lg">Show My Attendance</button>
+      </div>
+    </form>
+    <p class="text-center mt-3" style="color:#66748f;font-size:12px">
+      Your numbers are saved only on this device (browser storage) — we never store them on a server.
+      <a href="/">&larr; Back to login</a>
+    </p>
+  </div>
+</div>
+<script>
+  // remember on this device
+  try {
+    var saved = localStorage.getItem('jntuacea_totals');
+    if (saved) {
+      var d = JSON.parse(saved);
+      if (d.roll && !document.getElementById('roll').value) document.getElementById('roll').value = d.roll;
+      if (d.name) document.getElementById('name').value = d.name;
+      if (d.subjects) document.getElementById('subjects').value = d.subjects;
+    }
+  } catch (e) {}
+  document.querySelector('form').addEventListener('submit', function () {
+    try {
+      localStorage.setItem('jntuacea_totals', JSON.stringify({
+        roll: document.getElementById('roll').value.trim().toUpperCase(),
+        name: document.getElementById('name').value.trim(),
+        subjects: document.getElementById('subjects').value
+      }));
+    } catch (e) {}
+  });
+</script>
+</body>
+</html>'''
 
 
 def _fmt_date(s):
@@ -307,6 +438,107 @@ def _card(bar, pct_color, pct, name, total, present, absent, advice_cls, advice,
             % (bar, pct_color, pct, name, total, present, absent, advice_cls, advice, det_rows))
 
 
+def build_dashboard(name, roll, cls, acy, rows_data, note=''):
+    """rows_data: list of dicts {Subject, Total Days, No. of Present, Details} —
+    exactly the shape the portal scraper returns."""
+    cards = []
+    for row in rows_data:
+        total = int(row.get('Total Days') or 0)
+        present = int(row.get('No. of Present') or 0)
+        pct = float(row.get('Attendance %') or 0)
+        if total:
+            pct = round(present * 100.0 / total, 1)
+        if total == 0:
+            can_skip = need = 0
+        elif pct >= 75:
+            can_skip = max(0, int(present / 0.75 - total))
+            need = 0
+        else:
+            can_skip = 0
+            need = max(0, int((0.75 * total - present) / 0.25))
+        if total == 0:
+            advice_cls, advice = 'adv-neutral', 'No classes recorded yet.'
+        elif pct >= 75:
+            if can_skip > 0:
+                advice_cls, advice = 'adv-good', ('You can skip up to <b>%d</b> more classes '
+                                                  'and stay above 75%%.' % can_skip)
+            else:
+                advice_cls, advice = 'adv-good', 'You are safely above 75%.'
+        else:
+            advice_cls, advice = 'adv-bad', ('Attend the next <b>%d</b> classes to get back '
+                                             'above 75%%.' % max(1, need))
+        det = row.get('Details') or []
+        if det:
+            det_rows = ''.join(
+                '<tr><td>%s</td><td><span class="badge %s">%s</span></td></tr>'
+                % (_fmt_date(r.get('date', '')), 'b-p' if r.get('status') == 'P' else 'b-a',
+                   'Present' if r.get('status') == 'P' else 'Absent')
+                for r in det[:60])
+        else:
+            det_rows = ('<tr><td colspan="2">Totals entered manually — open the official '
+                        'portal for date-wise details, or '
+                        '<a href="/entry">update these totals</a>.</td></tr>')
+        if pct >= 75:
+            bar = '#059669'
+        elif pct >= 60:
+            bar = '#D97706'
+        else:
+            bar = '#DC2626'
+        cards.append(_card(bar, bar, ('%.1f' % pct), row.get('Subject', 'Subject'),
+                           total, present, total - present, advice_cls, advice, det_rows))
+    total_days = sum(int(r.get('Total Days') or 0) for r in rows_data)
+    total_present = sum(int(r.get('No. of Present') or 0) for r in rows_data)
+    overall = round(total_present * 100.0 / total_days, 2) if total_days else 0
+    return render_template_string(
+        DASH_HTML,
+        initial=(name[0] if name else 'S').upper(),
+        name=name.upper(),
+        roll=roll,
+        cls=cls or '',
+        acy=acy or '',
+        ov_color='green' if overall >= 75 else 'red',
+        overall=('%.1f' % overall),
+        total_days=total_days,
+        total_present=total_present,
+        total_absent=total_days - total_present,
+        portal=PORTAL_URL,
+        n_subjects=len(cards),
+        cards=''.join(cards),
+        note=note,
+    )
+
+
+def entry_logic():
+    """Shared handler for the manual-entry flow (works from /entry and from
+    the Vercel rewrite path /api/index/entry)."""
+    if request.method == 'GET':
+        return render_template_string(ENTRY_HTML, err='')
+    roll = (request.form.get('roll') or '').strip().upper().replace(' ', '')
+    name = (request.form.get('name') or '').strip() or roll
+    rows = parse_totals(request.form.get('subjects') or '')
+    if not rows:
+        return render_template_string(ENTRY_HTML, err=(
+            'No valid lines found. Type one subject per line like: '
+            'Operating Systems 36/40'))
+    if not re.match(r'^[A-Z0-9]{5,20}$', roll):
+        return render_template_string(ENTRY_HTML, err='Please enter a valid roll number.')
+    rows_data = [{'Subject': r['name'], 'Total Days': r['total'],
+                  'No. of Present': r['present'], 'No. of Absent': r['total'] - r['present'],
+                  'Attendance %': round(r['present'] * 100.0 / r['total'], 1),
+                  'Details': []} for r in rows]
+    return build_dashboard(name, roll, '', '', rows_data,
+                           note='Totals entered by you — saved only on this device. '
+                                '<a href="/entry" style="font-weight:700">Update totals</a> '
+                                'anytime, or try <a href="/" style="font-weight:700">auto sync</a> '
+                                'when the portal is open.')
+
+
+@app.route('/entry', methods=['GET', 'POST'], defaults={'path': ''})
+@app.route('/entry/<path:path>', methods=['GET', 'POST'])
+def entry(path):
+    return entry_logic()
+
+
 @app.route('/', methods=['GET', 'POST'], defaults={'path': ''})
 @app.route('/api/index', methods=['GET', 'POST'], defaults={'path': ''})
 @app.route('/<path:path>', methods=['GET', 'POST'])
@@ -321,6 +553,8 @@ def index(path):
     # Serve the logo from any rewritten path (Vercel rewrite-proof)
     if path and 'logo' in path:
         return Response(LOGO_SVG, mimetype='image/svg+xml')
+    if 'entry' in (path or ''):
+        return entry_logic()
     if request.method == 'GET':
         st = scraper.portal_status()
         if st == 'open':
@@ -348,80 +582,29 @@ def index(path):
         if 'CAPTCHA' in msg or 'Use https' in msg or 'rejected login' in msg:
             return render_template_string(LOGIN_HTML, pill='', err=(
                 'The official portal blocked the automated login (it is showing a human '
-                'verification right now). This blocks every app. Open the official portal '
-                'directly to check, and try here again when the green status shows.'))
+                'verification right now). This blocks every app &mdash; the other student '
+                'app is paused too. Instead use '
+                '<a href="/entry" style="font-weight:800">&#9998; Enter attendance manually</a> '
+                '(2 minutes, always works).'))
+        if 'Failed to load' in msg or 'no subjects' in msg or 'route' in msg:
+            return render_template_string(LOGIN_HTML, pill='', err=(
+                'Your credentials were accepted, but this college portal copy is missing the '
+                'attendance pages (the portal runs multiple incomplete copies). Use '
+                '<a href="/entry" style="font-weight:800">&#9998; Enter attendance manually</a> '
+                '&mdash; open the official portal on your phone, read the numbers, type them here.'))
         return render_template_string(LOGIN_HTML, pill='', err=msg)
     except Exception:
         return render_template_string(LOGIN_HTML, pill='', err=(
-            'Could not connect to the official portal. Please try again in a minute.'))
+            'Could not connect to the official portal. Please try again in a minute, or '
+            '<a href="/entry" style="font-weight:800">&#9998; Enter attendance manually</a>.'))
 
     details = data.get('details') or {}
     name = _detail_name(details) or username
     cls = details.get('classname') or details.get('Class') or ''
     acy = details.get('acad_year') or details.get('Academic Year') or ''
-
-    rows = []
-    for row in data.get('subjects', []):
-        total = int(row.get('Total Days') or 0)
-        present = int(row.get('No. of Present') or 0)
-        pct = float(row.get('Attendance %') or 0)
-        if total == 0:
-            can_skip = need = 0
-        elif pct >= 75:
-            can_skip = max(0, int(present / 0.75 - total))
-            need = 0
-        else:
-            can_skip = 0
-            need = max(0, int((0.75 * total - present) / 0.25))
-        if total == 0:
-            advice_cls, advice = 'adv-neutral', 'No classes recorded yet.'
-        elif pct >= 75:
-            if can_skip > 0:
-                advice_cls, advice = 'adv-good', ('You can skip up to <b>%d</b> more classes '
-                                                  'and stay above 75%%.' % can_skip)
-            else:
-                advice_cls, advice = 'adv-good', 'You are safely above 75%.'
-        else:
-            advice_cls, advice = 'adv-bad', ('Attend the next <b>%d</b> classes to get back '
-                                             'above 75%%.' % max(1, need))
-        det_rows = ''.join(
-            '<tr><td>%s</td><td><span class="badge %s">%s</span></td></tr>'
-            % (_fmt_date(r.get('date', '')), 'b-p' if r.get('status') == 'P' else 'b-a',
-               'Present' if r.get('status') == 'P' else 'Absent')
-            for r in row.get('Details', [])[:60])
-        if not det_rows:
-            det_rows = '<tr><td colspan="2">No date-wise records.</td></tr>'
-        if pct >= 75:
-            bar = '#059669'
-        elif pct >= 60:
-            bar = '#D97706'
-        else:
-            bar = '#DC2626'
-        rows.append({'card': _card(bar, bar, ('%.1f' % pct), row.get('Subject', 'Subject'),
-                                   total, present, total - present,
-                                   advice_cls, advice, det_rows),
-                     'pct': pct})
-
-    total_days = sum(int(r.get('Total Days') or 0) for r in data.get('subjects', []))
-    total_present = sum(int(r.get('No. of Present') or 0) for r in data.get('subjects', []))
-    overall = round(total_present * 100.0 / total_days, 2) if total_days else 0
-
-    return render_template_string(
-        DASH_HTML,
-        initial=(name[0] if name else 'S').upper(),
-        name=name.upper(),
-        roll=username,
-        cls=cls,
-        acy=acy,
-        ov_color='green' if overall >= 75 else 'red',
-        overall=('%.1f' % overall),
-        total_days=total_days,
-        total_present=total_present,
-        total_absent=total_days - total_present,
-        portal=PORTAL_URL,
-        n_subjects=len(rows),
-        cards=''.join(r['card'] for r in rows),
-    )
+    return build_dashboard(name, username, cls, acy, data.get('subjects', []),
+                           note='Live data fetched from the official portal with your own credentials. '
+                                'If the portal later blocks sync, use &#9998; Enter Totals.')
 
 
 if __name__ == '__main__':
