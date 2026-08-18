@@ -114,6 +114,14 @@ def _login(username, password):
         'Upgrade-Insecure-Requests': '1',
     })
     response, soup = _load_login_page(session)
+    # Fast-fail: portal now uses Cloudflare Turnstile (human CAPTCHA) —
+    # server-side login cannot pass it. Don't even bother POSTing.
+    if 'cf-turnstile' in response.text:
+        raise PortalError(
+            'Official portal ippudu Cloudflare Turnstile CAPTCHA (human bot-check) '
+            'vaduthundi — automatic sync temporarily blocked. '
+            'Local login use cheyandi (roll + roll number), or ask admin to use '
+            'Import Data for official records.')
     html_content = response.text
 
     # Obfuscated integrity token arrays (fallbacks from the student app)

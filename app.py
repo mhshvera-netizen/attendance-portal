@@ -81,6 +81,26 @@ def sha(txt):
     return hashlib.sha256(txt.encode()).hexdigest()
 
 
+def guess_from_roll(roll):
+    """Best-effort branch + year from a JNTUA-style roll (e.g. 23001A0204)."""
+    branch, year = 'CSE', 2
+    try:
+        if roll[:2].isdigit():
+            intake = 2000 + int(roll[:2])
+            if 2010 <= intake <= 2099:
+                now = now_ist()
+                yr = now.year - intake + (1 if now.month >= 8 else 0)
+                year = max(1, min(4, yr))
+        code = roll[6:8] if len(roll) >= 8 else ''
+        for b, c in BRANCH_CODE.items():
+            if code == c:
+                branch = b
+                break
+    except Exception:
+        pass
+    return branch, year
+
+
 def dob_matches(password, dob):
     """Login password vs stored DOB — tolerant of separators & ddmmyyyy/yyyymmdd order."""
     if not dob:
@@ -536,8 +556,8 @@ def page_login(err='', ok='', admin=False):
                 'Admin Username' if admin else 'Roll Number',
                 'e.g. 22A51A0501' if not admin else 'admin',
                 'Password',
-                'Default password: Roll Number or DOB (DDMMYYYY). Official portal credentials tho '
-                'direct ga login cheyachu — mee official attendance auto sync avthundi.'
+                'Login: Roll Number + Roll Number (first time) or DOB (DDMMYYYY). '
+                'Kotha students ki account automatic ga create avthundi.'
                 if not admin else 'Default admin password: admin123'))
     return page('Login', topbar() + body, nav='')
 
@@ -595,6 +615,9 @@ def page_student_dash(st, msg=''):
     if q1("SELECT password FROM students WHERE roll=?", (st['roll'],))['password'] == sha(st['roll']):
         body += ('<div class="notice">🔐 Your password is still your <b>Roll Number</b> (default). '
                  '<a href="/student/password"><b>Change it now</b></a> for safety.</div>')
+    if st['name'].startswith('Student ') or not st['dob']:
+        body += ('<div class="notice">👤 Mee details update cheyandi — <a href="/student/profile">'
+                 '<b>My Profile</b></a> lo name + DOB set cheste, DOB tho kuda login cheyachu.</div>')
     if msg:
         body += '<div class="ok">%s</div>' % esc(msg)
     body += sm_html
@@ -711,6 +734,22 @@ def page_student_sync(st, msg='', err=''):
              '<li>Portal protection change aite sync fail avvachu — appudu Import Data tab use cheyandi.</li>'
              '<li>30 minutes ki okasari matrame sync cheyachu (portal ni gentle ga handle cheyadaniki).</li></ul></div>')
     return page('Sync', topbar(student=st) + body, student=st)
+
+
+def page_student_profile(st, msg='', err=''):
+    body = ''
+    if msg:
+        body += '<div class="ok">%s</div>' % esc(msg)
+    if err:
+        body += '<div class="err">%s</div>' % esc(err)
+    body += ('<div class="card" style="max-width:560px"><h3><span class="bar"></span>My Profile</h3>'
+             '<form class="form" method="post" action="/student/profile">'
+             '<div><label>Full Name</label><input name="name" required value="%s"></div>'
+             '<div><label>Date of Birth (optional — DOB tho login cheyadaniki)</label>'
+             '<input type="date" name="dob" value="%s"></div>'
+             '<div class="btn-row"><button class="btn">Save Profile</button></div></form></div>'
+             % (esc(st['name']), esc(st['dob'])))
+    return page('My Profile', topbar(student=st) + body, student=st)
 
 
 def page_student_password(st, msg='', err=''):
@@ -1153,6 +1192,8 @@ class App(BaseHTTPRequestHandler):
                 return self.send(200, page_student_password(st))
             if path == '/student/sync':
                 return self.send(200, page_student_sync(st))
+            if path == '/student/profile':
+                return self.send(200, page_student_profile(st))
             return self.redir('/student')
         # ---- admin zone
         if sess and sess['role'] == 'admin':
@@ -1200,6 +1241,17 @@ class App(BaseHTTPRequestHandler):
             if st and (sha(pw) == st['password'] or dob_matches(pw, st['dob'])):
                 tok = self.new_session('student', roll)
                 return self.redir_ck('/student', tok)
+            # ---- Auto-register: JNTUA-style roll + password == roll number
+            if not st and pw.upper() == roll and re.match(r'^[0-9]{2}[0-9]{3}[A-Za-z]', roll):
+                branch, year = guess_from_roll(roll)
+                run("INSERT INTO students(roll,name,branch,year,section,password,dob) "
+                    "VALUES(?,?,?,?,'A',?,'')", (roll, 'Student ' + roll, branch, year, sha(roll)))
+                tok = self.new_session('student', roll)
+                return self.send(303, '', extra_headers=[('Location', '/student')]
+                                 + self.set_cookie(tok)
+                                 + [('Set-Cookie', 'flash=%s; Path=/; Max-Age=8; HttpOnly'
+                                     % quote('Account auto-create ayyindi ✅ Mee details (name + DOB) '
+                                             'Profile page lo update cheyandi.'))])
             # ---- Friend-app mode: direct official portal login (roll + official password)
             odata = None
             perr = ''
@@ -1232,12 +1284,12 @@ class App(BaseHTTPRequestHandler):
             if st:
                 msg = 'Incorrect password. (Default: Roll Number or DOB in DDMMYYYY format.)'
                 if perr:
-                    msg += ' Official portal also failed: %s' % perr
+                    msg += ' Official portal check: %s' % perr
                 return self.send(200, page_login(err=msg))
-            msg = 'Roll number not found. Official portal lo unna students — official password (DOB) '
-            msg += 'tho direct ga login cheyandi, mana app auto ga account create chesthundi.'
+            msg = ('Roll number not found. Roll Number + Roll Number tho login cheyandi — '
+                   'account auto create avthundi ✅ (leka admin tho account add cheyinchandi).')
             if perr:
-                msg += ' (Official portal check: %s)' % perr
+                msg += ' Official portal check: %s' % perr
             return self.send(200, page_login(err=msg))
         # ---- auth guard
         if not sess:
@@ -1272,6 +1324,13 @@ class App(BaseHTTPRequestHandler):
                                                   ('Set-Cookie', 'flash=%s; Path=/; Max-Age=6; HttpOnly'
                                                    % quote('You marked yourself PRESENT for %s.' % nm))])
                 return
+            if path == '/student/profile':
+                name = self.field(f, 'name').strip()
+                dob = self.field(f, 'dob').strip()
+                if not name:
+                    return self.send(200, page_student_profile(st, err='Name is required.'))
+                run("UPDATE students SET name=?, dob=? WHERE roll=?", (name[:60], dob, st['roll']))
+                return self.send(200, page_student_profile(st, msg='Profile updated successfully! ✅'))
             if path == '/student/password':
                 old = self.field(f, 'old')
                 new = self.field(f, 'new')
