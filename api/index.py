@@ -311,13 +311,15 @@ def _card(bar, pct_color, pct, name, total, present, absent, advice_cls, advice,
 @app.route('/api/index', methods=['GET', 'POST'], defaults={'path': ''})
 @app.route('/<path:path>', methods=['GET', 'POST'])
 def index(path):
+    if path and 'health' in path:
+        return Response('ok scraper=%s' % SCRAPER_OK, mimetype='text/plain')
     if not SCRAPER_OK:
         return Response(
             '<pre style="white-space:pre-wrap;font-family:monospace;padding:20px">'
             'Scraper module failed to load: %s</pre>' % SCRAPER_ERR,
             mimetype='text/html', status=500)
     # Serve the logo from any rewritten path (Vercel rewrite-proof)
-    if path in ('static/logo.png', 'static/logo.svg', 'api/index/static/logo.svg'):
+    if path and 'logo' in path:
         return Response(LOGO_SVG, mimetype='image/svg+xml')
     if request.method == 'GET':
         st = scraper.portal_status()
