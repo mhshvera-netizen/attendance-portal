@@ -51,20 +51,15 @@ PORTAL_STATUS = {'state': 'unknown', 'checked': 0.0}
 
 
 def portal_status():
-    """Check whether the official portal currently shows its CAPTCHA.
+    """Check whether ANY official portal endpoint is usable right now.
     Returns 'open' | 'captcha' | 'unknown' (cached ~2 min)."""
     now = time.time()
     if PORTAL_STATUS['state'] != 'unknown' and (now - PORTAL_STATUS['checked']) < 150:
         return PORTAL_STATUS['state']
     state = 'unknown'
     try:
-        import requests as _rq
-        r = _rq.get(PORTAL_URL, timeout=12, headers={
-            'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-                           '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'),
-            'Accept': 'text/html'})
-        if r.status_code == 200 and 'loginForm' in r.text:
-            state = 'captcha' if 'cf-turnstile' in r.text else 'open'
+        import scraper
+        state = scraper.portal_status()
     except Exception:
         state = 'unknown'
     PORTAL_STATUS['state'] = state
@@ -895,19 +890,20 @@ class App(BaseHTTPRequestHandler):
                 'Could not connect to the official portal. Please try again in a minute.'))
         store_fetch(username, data)
         if data.get('session') is not None:
-            ACTIVE_SESSIONS[username] = data['session']
+            ACTIVE_SESSIONS[username] = (data.get('base'), data['session'])
         return self.redir('/dashboard', self.set_login(username))
 
     # ----- live refresh from portal session (like the reference app) -----
     def live_refresh(self, roll):
-        sess = ACTIVE_SESSIONS.get(roll)
-        if sess is None:
+        item = ACTIVE_SESSIONS.get(roll)
+        if item is None:
             return ''
+        base, sess = item
         try:
             import scraper
-            details = scraper.get_student_details(sess)
-            subjects = scraper.get_subjects(sess, details)
-            rows = scraper.fetch_attendance(sess, subjects)
+            details = scraper.get_student_details(sess, base)
+            subjects = scraper.get_subjects(sess, base, details)
+            rows = scraper.fetch_attendance(sess, base, subjects)
             store_fetch(roll, {'details': details, 'subjects': rows})
             return ''
         except Exception as e:

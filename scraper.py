@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 """
-Official JNTUACEA portal scraper — Vercel edition (stateless, concurrent).
+Official JNTUACEA portal scraper — multi-endpoint edition.
 
-Same architecture as the popular JNTUA student attendance app:
-    student_login()  -> logs into jntuaceastudents.classattendance.in
-                        (solves the CDN JS challenge + integrity token)
+The same "JNTUACEA - Academic Record Book" application is reachable at two
+hostnames:
+    https://ekr.classattendance.in/            <- no CAPTCHA (preferred)
+    https://jntuaceastudents.classattendance.in/ <- may show Cloudflare Turnstile
+
+We try the CAPTCHA-free endpoint first and fall back to the other. Same
+architecture as the popular JNTUA student attendance app:
+    student_login() -> login (CDN JS challenge + hidden-field payload)
     get_student_details() -> name, class, academic year
-    get_subjects()   -> subject list
-    full_fetch()     -> subject-wise attendance (concurrent, gentle)
+    get_subjects() -> subject list
+    full_fetch() -> subject-wise attendance (concurrent, gentle)
 
 The student's password is used in memory only and never stored.
 """
@@ -22,7 +27,10 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
-BASE_URL = 'https://jntuaceastudents.classattendance.in/'
+BASE_URLS = [
+    'https://ekr.classattendance.in/',
+    'https://jntuaceastudents.classattendance.in/',
+]
 UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
 TIMEOUT = 15
@@ -43,76 +51,56 @@ def _find_login_form(soup):
     return None
 
 
-def _solve_cdn_challenge(session, response):
+def _solve_cdn_challenge(session, response, base):
     if response.status_code != 403:
         return response
     soup = BeautifulSoup(response.text, 'html.parser')
     script = soup.find('script', src=lambda v: v and 'hcdn-cgi/jschallenge' in v)
     if not script:
-        raise PortalError(
-            'Official portal is showing a CAPTCHA (human verification) right now, '
-            'so automated login is blocked at the moment. '
-            'Please try again later — the portal enables and disables it.')
+        raise PortalError('Endpoint blocked this request. Trying another route.')
     try:
-        script_res = session.get(urljoin(response.url, script['src']),
+        script_res = session.get(urljoin(base, script['src']),
                                  headers={'Referer': response.url}, timeout=TIMEOUT)
         script_res.raise_for_status()
         cjs = re.search(r"const\s+cjs\s*=\s*(['\"])(.*?)\1\s*;", script_res.text)
         endpoint = re.search(r"const\s+jsChallengeUrl\s*=\s*(['\"])(.*?)\1\s*;", script_res.text)
         uri = re.search(r"const\s+uri\s*=\s*(['\"])(.*?)\1\s*;", script_res.text)
         if not cjs or not endpoint:
-            raise PortalError('Official portal login verification changed. Please try again later.')
+            raise PortalError('Endpoint verification changed. Trying another route.')
         challenge = hashlib.sha256(cjs.group(2).encode()).hexdigest()
         time.sleep(1.0)
-        val_res = session.post(urljoin(response.url, endpoint.group(2)),
+        val_res = session.post(urljoin(base, endpoint.group(2)),
                                data={'challenge': challenge},
                                headers={
                                    'Content-Type': 'application/x-www-form-urlencoded',
-                                   'Origin': response.url.rsplit('/', 1)[0],
+                                   'Origin': base.rstrip('/'),
                                    'Referer': response.url}, timeout=TIMEOUT)
         if val_res.status_code != 200:
-            raise PortalError('Official portal verification failed. Please try again later.')
-        target = urljoin(response.url, uri.group(2)) if uri else response.url
+            raise PortalError('Endpoint verification failed. Trying another route.')
+        target = urljoin(base, uri.group(2)) if uri else base
         time.sleep(1.0)
         return session.get(target, timeout=TIMEOUT)
     except PortalError:
         raise
     except Exception:
-        raise PortalError('Official portal verification failed. Please try again later.')
+        raise PortalError('Endpoint verification failed. Trying another route.')
 
 
-def _load_login_page(session):
-    response = session.get(BASE_URL, timeout=TIMEOUT)
-    response = _solve_cdn_challenge(session, response)
+def _load_login_page(session, base):
+    response = session.get(base, timeout=TIMEOUT)
+    response = _solve_cdn_challenge(session, response, base)
     soup = BeautifulSoup(response.text, 'html.parser')
     if _find_login_form(soup):
         return response, soup
-    if response.status_code == 403:
-        raise PortalError('Official portal blocked this login request (403). Please try again later.')
     if 'cf-turnstile' in response.text or 'challenges.cloudflare.com' in response.text:
-        raise PortalError(
-            'The official portal is showing a CAPTCHA (human verification) right now, '
-            'so automated login is blocked at the moment. '
-            'Please try again later — the portal enables and disables it.')
-    raise PortalError('Official portal login page is unavailable right now. Please try again later.')
+        raise PortalError('Endpoint is showing a CAPTCHA. Trying another route.')
+    if response.status_code == 403:
+        raise PortalError('Endpoint blocked this login request. Trying another route.')
+    raise PortalError('Endpoint login page unavailable. Trying another route.')
 
 
-def student_login(username, password):
-    session = requests.Session()
-    session.headers.update({
-        'Host': 'jntuaceastudents.classattendance.in',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'User-Agent': UA,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Sec-Fetch-Site': 'same-origin',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-User': '?1',
-        'Sec-Fetch-Dest': 'document',
-        'Accept-Language': 'en-US,en;q=0.9',
-    })
-
-    response, login_form = _load_login_page(session)
+def _login_on(session, base, username, password):
+    response, login_form = _load_login_page(session, base)
     html_content = response.text
 
     computed_name = 'a_3f754265'
@@ -147,22 +135,54 @@ def student_login(username, password):
     time.sleep(0.4)
     session.headers.update({
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Origin': BASE_URL.rstrip('/'),
-        'Referer': BASE_URL,
+        'Origin': base.rstrip('/'),
+        'Referer': base,
     })
-    auth = session.post(BASE_URL, data=payload, timeout=TIMEOUT, allow_redirects=True)
+    auth = session.post(base, data=payload, timeout=TIMEOUT, allow_redirects=True)
 
     if 'studenthome.php' not in auth.url.lower():
         fail_soup = BeautifulSoup(auth.text, 'html.parser')
         err_el = fail_soup.find(class_=['alert', 'text-danger', 'invalid-feedback'])
         detail = err_el.text.strip() if err_el else 'Invalid credentials or session mismatch.'
-        raise PortalError('Official portal rejected login: %s' % detail)
+        raise PortalError('login-failed::%s' % detail)
 
-    return session
+    return base, session
 
 
-def get_student_details(session):
-    home_res = session.get(BASE_URL + 'studenthome.php', timeout=TIMEOUT)
+def student_login(username, password):
+    """Try each endpoint in order. Returns (base, session)."""
+    last_err = 'All endpoints failed.'
+    for base in BASE_URLS:
+        session = requests.Session()
+        session.headers.update({
+            'Host': urljoin(base, '/').split('/')[2],
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'User-Agent': UA,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Sec-Fetch-Site': 'same-origin',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-User': '?1',
+            'Sec-Fetch-Dest': 'document',
+            'Accept-Language': 'en-US,en;q=0.9',
+        })
+        try:
+            return _login_on(session, base, username, password)
+        except PortalError as e:
+            msg = str(e)
+            if msg.startswith('login-failed::'):
+                # credentials were checked — no point trying other endpoints
+                raise PortalError(msg.split('::', 1)[1])
+            last_err = msg
+            continue
+        except Exception:
+            last_err = 'Could not connect to the official portal.'
+            continue
+    raise PortalError(last_err)
+
+
+def get_student_details(session, base):
+    home_res = session.get(base + 'studenthome.php', timeout=TIMEOUT)
     if home_res.status_code != 200 or not home_res.text:
         raise PortalError('Failed to load your official home page.')
     soup = BeautifulSoup(home_res.text, 'html.parser')
@@ -187,15 +207,15 @@ def get_student_details(session):
     return details
 
 
-def get_subjects(session, student_info):
+def get_subjects(session, base, student_info):
     payload = {
         'student_id': student_info.get('student_id'),
         'class_id': student_info.get('class_id'),
         'classname': student_info.get('classname'),
         'acad_year': student_info.get('acad_year'),
     }
-    session.headers.update({'Referer': BASE_URL + 'studenthome.php'})
-    res = session.post(BASE_URL + 'studentsubjects.php', data=payload, timeout=TIMEOUT)
+    session.headers.update({'Referer': base + 'studenthome.php'})
+    res = session.post(base + 'studentsubjects.php', data=payload, timeout=TIMEOUT)
     if not res.text:
         return []
     soup = BeautifulSoup(res.text, 'html.parser')
@@ -231,12 +251,12 @@ def _parse_attendance_rows(html_text):
     return records
 
 
-def _attendance_for_subject(session, payload):
+def _attendance_for_subject(session, base, payload):
     session.headers.update({
-        'Referer': BASE_URL + 'studentsubjects.php',
+        'Referer': base + 'studentsubjects.php',
         'Content-Type': 'application/x-www-form-urlencoded',
     })
-    res = session.post(BASE_URL + 'studentsubatt.php', data=payload, timeout=TIMEOUT)
+    res = session.post(base + 'studentsubatt.php', data=payload, timeout=TIMEOUT)
     name = payload.get('sub_fullname') or payload.get('subname') or 'Unknown Subject'
     records = _parse_attendance_rows(res.text)
     total = len(records)
@@ -251,12 +271,11 @@ def _attendance_for_subject(session, payload):
     }
 
 
-def fetch_attendance(session, subjects):
-    """Fetch subject-wise attendance sequentially (used by the stateful app)."""
+def fetch_attendance(session, base, subjects):
     results = []
     for s in subjects:
         try:
-            results.append(_attendance_for_subject(session, s))
+            results.append(_attendance_for_subject(session, base, s))
         except Exception:
             results.append({'Subject': s.get('sub_fullname', 'Unknown Subject'),
                             'Total Days': 0, 'No. of Present': 0, 'No. of Absent': 0,
@@ -266,26 +285,30 @@ def fetch_attendance(session, subjects):
 
 
 def portal_status():
-    """'open' | 'captcha' | 'unknown' — is the portal currently usable from a server?"""
-    try:
-        r = requests.get(BASE_URL, timeout=12, headers={'User-Agent': UA, 'Accept': 'text/html'})
-        if r.status_code == 200 and 'loginForm' in r.text:
-            return 'captcha' if 'cf-turnstile' in r.text else 'open'
-    except Exception:
-        pass
-    return 'unknown'
+    """'open' | 'captcha' | 'unknown' — best available endpoint status."""
+    for base in BASE_URLS:
+        try:
+            r = requests.get(base, timeout=12, headers={'User-Agent': UA, 'Accept': 'text/html'})
+            if r.status_code == 200 and _find_login_form(BeautifulSoup(r.text, 'html.parser')):
+                if 'cf-turnstile' in r.text:
+                    continue  # this endpoint has CAPTCHA; try the next
+                return 'open'
+        except Exception:
+            continue
+    return 'captcha'
 
 
 def full_fetch(username, password, max_subjects=16):
-    """Login + fetch everything for one student. Raises PortalError on failure."""
-    session = student_login(username, password)
-    details = get_student_details(session)
-    subjects = get_subjects(session, details)
+    """Login (any working endpoint) + fetch everything for one student."""
+    base, session = student_login(username, password)
+    details = get_student_details(session, base)
+    subjects = get_subjects(session, base, details)
     if not subjects:
         raise PortalError('Official portal returned no subjects for this account.')
     rows = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
-        futs = {ex.submit(_attendance_for_subject, session, s): s for s in subjects[:max_subjects]}
+        futs = {ex.submit(_attendance_for_subject, session, base, s): s
+                for s in subjects[:max_subjects]}
         for f in concurrent.futures.as_completed(futs):
             s = futs[f]
             try:
@@ -295,11 +318,11 @@ def full_fetch(username, password, max_subjects=16):
                              'Total Days': 0, 'No. of Present': 0, 'No. of Absent': 0,
                              'Attendance %': 0, 'Details': []})
     rows.sort(key=lambda r: r['Subject'])
-    return {'details': details, 'subjects': rows}
+    return {'details': details, 'subjects': rows, 'base': base, 'session': session}
 
 
 # ---------------------------------------------------------------- test mode --
-def _stub_fetch(username, password):
+def _stub_fetch(username, password, max_subjects=16):
     time.sleep(0.1)
     return {
         'details': {'Student Name': 'Abhishek Reddy', 'classname': 'II CSE', 'acad_year': '2025-26'},
