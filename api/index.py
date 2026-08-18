@@ -99,7 +99,7 @@ display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
       <p class="sub">To ensure uninterrupted attendance access after recent
       security updates on the college portal, we have launched an official
       Android application.</p>
-      <a class="btn" href="https://github.com/mhshvera-netizen/attendance-portal/releases/download/v1.0.0/{{ apk }}">
+      <a class="btn" href="https://ghproxy.net/https://github.com/mhshvera-netizen/attendance-portal/releases/download/v1.0.0/{{ apk }}">
         <span class="ico">&#8681;</span> Download APK{% if size %} &middot; {{ size }}{% endif %}
       </a>
     </div>
@@ -152,7 +152,7 @@ display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
   <div class="cta">
     <h2>Ready to check your attendance?</h2>
     <p>Download JNTUACEA Attendance App v1.0.0 for Android 8.0 and above.</p>
-    <a class="btn" href="https://github.com/mhshvera-netizen/attendance-portal/releases/download/v1.0.0/{{ apk }}"><span class="ico">&#8681;</span> Download APK{% if size %} &middot; {{ size }}{% endif %}</a>
+    <a class="btn" href="https://ghproxy.net/https://github.com/mhshvera-netizen/attendance-portal/releases/download/v1.0.0/{{ apk }}"><span class="ico">&#8681;</span> Download APK{% if size %} &middot; {{ size }}{% endif %}</a>
   </div>
 
   <footer>
