@@ -19,6 +19,21 @@ APK_B64 = '''UEsDBAAAAAAIAAAAIQB5GvrMXAMAADQJAAATAAAAQW5kcm9pZE1hbmlmZXN0LnhtbJV
 
 app = Flask(__name__)
 
+
+@app.errorhandler(500)
+def _err500(e):
+    import traceback
+    return Response('<pre>' + traceback.format_exc() + '</pre>',
+                    mimetype='text/html', status=500)
+
+
+@app.errorhandler(Exception)
+def _errall(e):
+    import traceback
+    return Response('<pre>' + traceback.format_exc() + '</pre>',
+                    mimetype='text/html', status=500)
+
+
 APK_FILENAME = 'JNTUA-Attendance-Application.apk'
 APK_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         '..', 'downloads', APK_FILENAME)
