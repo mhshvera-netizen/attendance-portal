@@ -118,7 +118,7 @@ LOGIN_HTML = '''<!doctype html>
                     <br />
                     {{ pill|safe }}
                     {% if err %}
-                    <div class="alert alert-danger" role="alert">{{ err }}</div>
+                    <div class="alert alert-danger" role="alert">{{ err|safe }}</div>
                     {% endif %}
                     <form action="/" method="post" id="loginForm">
                         <div class="mb-3">
