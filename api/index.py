@@ -145,6 +145,11 @@ LOGIN_HTML = '''<!doctype html>
                     We check your attendance on the official portal using your own credentials.
                     Your password is never stored.
                 </p>
+                <p class="text-center mt-1" style="font-size:13px">
+                    &#128241; <a href="/static/JNTUACEA-Attendance.apk" style="font-weight:700">Download the Android App (APK)</a>
+                    &mdash; login inside it, then tap the &#128202; Attendance button for your
+                    overall % and subject-wise %.
+                </p>
             </div>
             <div class="col-sm-3"></div>
         </div>
