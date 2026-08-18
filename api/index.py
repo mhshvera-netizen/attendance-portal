@@ -26,7 +26,19 @@ LANDING = '''<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>JNTUACEA Attendance App for Android</title>
+<title>JNTUACEA Attendance App - Check Your Attendance | JNTUA College of Engineering Ananthapuramu</title>
+<meta name="description" content="Check your JNTUACEA attendance online. View overall attendance percentage and subject-wise attendance with the 75% skip/attend rule. Official JNTUA College of Engineering Ananthapuramu attendance app for students.">
+<meta name="keywords" content="JNTUACEA attendance, JNTUA attendance app, JNTUA College of Engineering Ananthapuramu, attendance percentage, subject wise attendance, skip classes 75 rule">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://attendance-portal-uk21.vercel.app/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="JNTUACEA Attendance App - Check Your Attendance">
+<meta property="og:description" content="Overall attendance % and subject-wise attendance with skip/attend 75% rule for JNTUACEA students.">
+<meta property="og:url" content="https://attendance-portal-uk21.vercel.app/">
+<meta name="twitter:card" content="summary">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebApplication","name":"JNTUACEA Attendance App","url":"https://attendance-portal-uk21.vercel.app/","applicationCategory":"EducationalApplication","operatingSystem":"Android","description":"Check JNTUACEA student attendance: overall percentage and subject-wise percentage with the 75% skip/attend rule.","offers":{"@type":"Offer","price":"0","priceCurrency":"INR"},"inLanguage":"en-IN"}
+</script>
 <style>
 :root{--blue:#0b4db9;--blue-deep:#06357f;--sky:#eaf4ff;--ink:#10213d;
 --muted:#63728a;--line:rgba(24,81,166,.14);--white:#fff}
@@ -165,9 +177,28 @@ display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
 </html>'''
 
 
+@app.route('/robots.txt')
+def robots():
+    txt = ('User-agent: *\n'
+           'Allow: /\n'
+           '\n'
+           'Sitemap: https://attendance-portal-uk21.vercel.app/sitemap.xml\n')
+    return Response(txt, mimetype='text/plain')
+
+
+@app.route('/sitemap.xml')
+def sitemap():
+    xml = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+           '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+           '  <url><loc>https://attendance-portal-uk21.vercel.app/</loc>'
+           '<priority>1.0</priority></url>\n'
+           '</urlset>\n')
+    return Response(xml, mimetype='application/xml')
+
+
 @app.route('/api/health')
 def health():
-    return 'ok'
+    return 'ok' 
 
 
 @app.route('/', defaults={'path': ''})
@@ -175,7 +206,19 @@ def health():
 @app.route('/<path:path>')
 def index(path):
     import base64 as _b64
-    if 'apk' in (path or '').lower():
+    p = (path or '').lower()
+    if 'robots' in p:
+        txt = ('User-agent: *\nAllow: /\n\n'
+               'Sitemap: https://attendance-portal-uk21.vercel.app/sitemap.xml\n')
+        return Response(txt, mimetype='text/plain')
+    if 'sitemap' in p:
+        xml = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+               '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+               '  <url><loc>https://attendance-portal-uk21.vercel.app/</loc>'
+               '<priority>1.0</priority></url>\n'
+               '</urlset>\n')
+        return Response(xml, mimetype='application/xml')
+    if 'apk' in p:
         return Response(_b64.b64decode(APK_B64),
                         mimetype='application/vnd.android.package-archive',
                         headers={'Content-Disposition':
