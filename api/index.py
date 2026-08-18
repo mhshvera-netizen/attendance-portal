@@ -10,11 +10,36 @@ Student flow exactly like the popular JNTUA attendance app:
 from flask import Flask, request, render_template_string, Response
 
 import os
-import scraper
+import sys
+import traceback
+
+# Vercel serverless: ensure this file's directory is on sys.path so that
+# the sibling scraper module can be imported reliably.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+try:
+    import scraper
+    SCRAPER_OK = True
+except Exception as _e:
+    SCRAPER_OK = False
+    SCRAPER_ERR = repr(_e)
 
 app = Flask(__name__)
 
 PORTAL_URL = 'https://jntuaceastudents.classattendance.in/'
+
+
+@app.errorhandler(500)
+def internal_error(e):
+    """Show the real error instead of a blank 500 (for fast debugging)."""
+    tb = traceback.format_exc()
+    return ('<pre style="white-space:pre-wrap;font-family:monospace;padding:20px">'
+            '500 INTERNAL SERVER ERROR\n\n%s</pre>' % tb), 500
+
+
+@app.route('/api/health')
+def health():
+    return 'ok scraper=%s' % SCRAPER_OK
 
 LOGO_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">
 <circle cx="200" cy="200" r="192" fill="#ffffff" stroke="#f0b429" stroke-width="10"/>
@@ -286,6 +311,11 @@ def _card(bar, pct_color, pct, name, total, present, absent, advice_cls, advice,
 @app.route('/api/index', methods=['GET', 'POST'], defaults={'path': ''})
 @app.route('/<path:path>', methods=['GET', 'POST'])
 def index(path):
+    if not SCRAPER_OK:
+        return Response(
+            '<pre style="white-space:pre-wrap;font-family:monospace;padding:20px">'
+            'Scraper module failed to load: %s</pre>' % SCRAPER_ERR,
+            mimetype='text/html', status=500)
     # Serve the logo from any rewritten path (Vercel rewrite-proof)
     if path in ('static/logo.png', 'static/logo.svg', 'api/index/static/logo.svg'):
         return Response(LOGO_SVG, mimetype='image/svg+xml')

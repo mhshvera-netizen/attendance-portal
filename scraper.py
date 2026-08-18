@@ -1,24 +1,18 @@
 #!/usr/bin/env python3
 """
-JNTUACEA Official Portal Scraper
-================================
-Exactly like the popular JNTUA student attendance app architecture:
+Official JNTUACEA portal scraper — Vercel edition (stateless, concurrent).
 
-    student_login(username, password)   -> logs into the official portal
-                                            (solves the CDN JS challenge +
-                                             obfuscated integrity token)
-    get_student_details(session)        -> name, roll, class, acad year
-    get_subjects(session, details)      -> subject list for the student
-    fetch_attendance(session, subjects) -> subject-wise records + math
+Same architecture as the popular JNTUA student attendance app:
+    student_login()  -> logs into jntuaceastudents.classattendance.in
+                        (solves the CDN JS challenge + integrity token)
+    get_student_details() -> name, class, academic year
+    get_subjects()   -> subject list
+    full_fetch()     -> subject-wise attendance (concurrent, gentle)
 
-All reads are for the ONE student who logged in with THEIR OWN credentials.
-The password is used in memory only and never stored anywhere.
-
-If the portal is showing Cloudflare Turnstile CAPTCHA (human bot-check),
-automated login is not possible for any server app — a clear PortalError
-is raised with a friendly message.
+The student's password is used in memory only and never stored.
 """
 
+import concurrent.futures
 import hashlib
 import os
 import re
@@ -35,11 +29,9 @@ TIMEOUT = 15
 
 
 class PortalError(Exception):
-    """Friendly, user-displayable error from the official portal."""
     pass
 
 
-# ---------------------------------------------------------------- login ----
 def _find_login_form(soup):
     form = soup.find('form', id='loginForm')
     if form:
@@ -52,7 +44,6 @@ def _find_login_form(soup):
 
 
 def _solve_cdn_challenge(session, response):
-    """Solve Hostinger CDN JS SHA-256 browser verification."""
     if response.status_code != 403:
         return response
     soup = BeautifulSoup(response.text, 'html.parser')
@@ -61,7 +52,7 @@ def _solve_cdn_challenge(session, response):
         raise PortalError(
             'Official portal is showing a CAPTCHA (human verification) right now, '
             'so automated login is blocked at the moment. '
-            'Please try again later — the official portal enables and disables it.')
+            'Please try again later — the portal enables and disables it.')
     try:
         script_res = session.get(urljoin(response.url, script['src']),
                                  headers={'Referer': response.url}, timeout=TIMEOUT)
@@ -100,15 +91,13 @@ def _load_login_page(session):
         raise PortalError('Official portal blocked this login request (403). Please try again later.')
     if 'cf-turnstile' in response.text or 'challenges.cloudflare.com' in response.text:
         raise PortalError(
-            'Official portal is showing a CAPTCHA (human verification) right now, '
+            'The official portal is showing a CAPTCHA (human verification) right now, '
             'so automated login is blocked at the moment. '
-            'Please try again later — the official portal enables and disables it.')
+            'Please try again later — the portal enables and disables it.')
     raise PortalError('Official portal login page is unavailable right now. Please try again later.')
 
 
 def student_login(username, password):
-    """Authenticate with the official portal. Returns a live requests.Session.
-    Raises PortalError with a friendly message on any failure."""
     session = requests.Session()
     session.headers.update({
         'Host': 'jntuaceastudents.classattendance.in',
@@ -126,7 +115,6 @@ def student_login(username, password):
     response, login_form = _load_login_page(session)
     html_content = response.text
 
-    # Obfuscated integrity token arrays (with the known fallbacks)
     computed_name = 'a_3f754265'
     computed_value = '1c9e4f41f180f641253c1fbb861d3022'
     try:
@@ -173,9 +161,7 @@ def student_login(username, password):
     return session
 
 
-# ------------------------------------------------------------ details -----
 def get_student_details(session):
-    """Parse the student's My Details card + hidden tracking parameters."""
     home_res = session.get(BASE_URL + 'studenthome.php', timeout=TIMEOUT)
     if home_res.status_code != 200 or not home_res.text:
         raise PortalError('Failed to load your official home page.')
@@ -202,7 +188,6 @@ def get_student_details(session):
 
 
 def get_subjects(session, student_info):
-    """Fetch the student's subject list (hidden form payloads)."""
     payload = {
         'student_id': student_info.get('student_id'),
         'class_id': student_info.get('class_id'),
@@ -225,9 +210,7 @@ def get_subjects(session, student_info):
     return subjects
 
 
-# ---------------------------------------------------------- attendance ----
 def _parse_attendance_rows(html_text):
-    """Parse studentsubatt.php table -> [{'date':..., 'status': 'P'|'A'}]"""
     soup = BeautifulSoup(html_text, 'html.parser')
     table = soup.find('table', class_='table')
     if not table:
@@ -260,8 +243,6 @@ def _attendance_for_subject(session, payload):
     present = sum(1 for r in records if r['status'] == 'P')
     return {
         'Subject': name,
-        'Start Date': records[0]['date'] if records else '',
-        'End Date': records[-1]['date'] if records else '',
         'Total Days': total,
         'No. of Present': present,
         'No. of Absent': total - present,
@@ -271,54 +252,69 @@ def _attendance_for_subject(session, payload):
 
 
 def fetch_attendance(session, subjects):
-    """Fetch subject-wise attendance sequentially (gentle with the portal)."""
+    """Fetch subject-wise attendance sequentially (used by the stateful app)."""
     results = []
     for s in subjects:
         try:
             results.append(_attendance_for_subject(session, s))
         except Exception:
-            results.append({
-                'Subject': s.get('sub_fullname', 'Unknown Subject'),
-                'Start Date': '', 'End Date': '',
-                'Total Days': 0, 'No. of Present': 0, 'No. of Absent': 0,
-                'Attendance %': 0, 'Details': [],
-            })
+            results.append({'Subject': s.get('sub_fullname', 'Unknown Subject'),
+                            'Total Days': 0, 'No. of Present': 0, 'No. of Absent': 0,
+                            'Attendance %': 0, 'Details': []})
         time.sleep(0.3)
     return results
 
 
-def full_fetch(username, password):
-    """One-shot: login + details + subjects + attendance.
-    Returns {'details': dict, 'subjects': [result rows]}."""
+def portal_status():
+    """'open' | 'captcha' | 'unknown' — is the portal currently usable from a server?"""
+    try:
+        r = requests.get(BASE_URL, timeout=12, headers={'User-Agent': UA, 'Accept': 'text/html'})
+        if r.status_code == 200 and 'loginForm' in r.text:
+            return 'captcha' if 'cf-turnstile' in r.text else 'open'
+    except Exception:
+        pass
+    return 'unknown'
+
+
+def full_fetch(username, password, max_subjects=16):
+    """Login + fetch everything for one student. Raises PortalError on failure."""
     session = student_login(username, password)
     details = get_student_details(session)
     subjects = get_subjects(session, details)
     if not subjects:
         raise PortalError('Official portal returned no subjects for this account.')
-    rows = fetch_attendance(session, subjects)
-    return {'details': details, 'subjects': rows, 'session': session}
+    rows = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+        futs = {ex.submit(_attendance_for_subject, session, s): s for s in subjects[:max_subjects]}
+        for f in concurrent.futures.as_completed(futs):
+            s = futs[f]
+            try:
+                rows.append(f.result())
+            except Exception:
+                rows.append({'Subject': s.get('sub_fullname', 'Unknown Subject'),
+                             'Total Days': 0, 'No. of Present': 0, 'No. of Absent': 0,
+                             'Attendance %': 0, 'Details': []})
+    rows.sort(key=lambda r: r['Subject'])
+    return {'details': details, 'subjects': rows}
 
 
-# ------------------------------------------------------------ test mode ----
+# ---------------------------------------------------------------- test mode --
 def _stub_fetch(username, password):
-    """OFFICIAL_STUB=1 → fake portal responses (used only for local testing)."""
     time.sleep(0.1)
     return {
-        'details': {'Student Name': 'Abhishek Reddy', 'username': username,
-                    'classname': 'II CSE', 'acad_year': '2025-26'},
+        'details': {'Student Name': 'Abhishek Reddy', 'classname': 'II CSE', 'acad_year': '2025-26'},
         'subjects': [
-            {'Subject': 'Operating Systems', 'Start Date': '2026-06-01', 'End Date': '2026-08-17',
-             'Total Days': 40, 'No. of Present': 36, 'No. of Absent': 4, 'Attendance %': 90.0,
+            {'Subject': 'Operating Systems', 'Total Days': 40, 'No. of Present': 36,
+             'No. of Absent': 4, 'Attendance %': 90.0,
              'Details': [{'date': '2026-08-17', 'status': 'P'}, {'date': '2026-08-16', 'status': 'P'},
-                         {'date': '2026-08-15', 'status': 'A'}, {'date': '2026-08-14', 'status': 'P'}]},
-            {'Subject': 'Database Management Systems', 'Start Date': '2026-06-01', 'End Date': '2026-08-17',
-             'Total Days': 40, 'No. of Present': 30, 'No. of Absent': 10, 'Attendance %': 75.0,
+                         {'date': '2026-08-15', 'status': 'A'}]},
+            {'Subject': 'Database Management Systems', 'Total Days': 40, 'No. of Present': 30,
+             'No. of Absent': 10, 'Attendance %': 75.0,
              'Details': [{'date': '2026-08-17', 'status': 'P'}, {'date': '2026-08-16', 'status': 'A'}]},
-            {'Subject': 'Design & Analysis of Algorithms', 'Start Date': '2026-06-01', 'End Date': '2026-08-17',
-             'Total Days': 38, 'No. of Present': 25, 'No. of Absent': 13, 'Attendance %': 65.8,
-             'Details': [{'date': '2026-08-17', 'status': 'A'}, {'date': '2026-08-16', 'status': 'A'}]},
+            {'Subject': 'Design & Analysis of Algorithms', 'Total Days': 38, 'No. of Present': 25,
+             'No. of Absent': 13, 'Attendance %': 65.8,
+             'Details': [{'date': '2026-08-17', 'status': 'A'}]},
         ],
-        'session': None,
     }
 
 

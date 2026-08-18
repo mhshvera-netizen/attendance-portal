@@ -251,6 +251,20 @@ def _attendance_for_subject(session, payload):
     }
 
 
+def fetch_attendance(session, subjects):
+    """Fetch subject-wise attendance sequentially (used by the stateful app)."""
+    results = []
+    for s in subjects:
+        try:
+            results.append(_attendance_for_subject(session, s))
+        except Exception:
+            results.append({'Subject': s.get('sub_fullname', 'Unknown Subject'),
+                            'Total Days': 0, 'No. of Present': 0, 'No. of Absent': 0,
+                            'Attendance %': 0, 'Details': []})
+        time.sleep(0.3)
+    return results
+
+
 def portal_status():
     """'open' | 'captcha' | 'unknown' — is the portal currently usable from a server?"""
     try:
