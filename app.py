@@ -46,6 +46,31 @@ BRANCH_CODE = {'CE': '01', 'EEE': '02', 'ME': '03', 'ECE': '04', 'CSE': '05'}
 # live official-portal sessions (like the reference app keeps them in memory)
 ACTIVE_SESSIONS = {}
 
+# portal CAPTCHA status cache (checked at most once every ~2 minutes)
+PORTAL_STATUS = {'state': 'unknown', 'checked': 0.0}
+
+
+def portal_status():
+    """Check whether the official portal currently shows its CAPTCHA.
+    Returns 'open' | 'captcha' | 'unknown' (cached ~2 min)."""
+    now = time.time()
+    if PORTAL_STATUS['state'] != 'unknown' and (now - PORTAL_STATUS['checked']) < 150:
+        return PORTAL_STATUS['state']
+    state = 'unknown'
+    try:
+        import requests as _rq
+        r = _rq.get(PORTAL_URL, timeout=12, headers={
+            'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                           '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'),
+            'Accept': 'text/html'})
+        if r.status_code == 200 and 'loginForm' in r.text:
+            state = 'captcha' if 'cf-turnstile' in r.text else 'open'
+    except Exception:
+        state = 'unknown'
+    PORTAL_STATUS['state'] = state
+    PORTAL_STATUS['checked'] = now
+    return state
+
 # ---------------------------------------------------------------- database --
 def conn():
     con = sqlite3.connect(DB_PATH)
@@ -384,13 +409,29 @@ def year_roman(y):
 
 
 # ---------------- login page ----------------
-def page_login(err=''):
+def page_login(err='', status=None):
+    if status is None:
+        status = portal_status()
+    pill = ''
+    if status == 'open':
+        pill = ('<div style="background:#E8F7EE;border:1px solid #BFE6CF;color:#16603A;'
+                'border-radius:10px;padding:9px 12px;font-size:12px;font-weight:600;margin-bottom:14px">'
+                '🟢 Official portal is open — attendance check works now.</div>')
+    elif status == 'captcha':
+        pill = ('<div style="background:#FDE8E8;border:1px solid #F2C4C4;color:#9B1C1C;'
+                'border-radius:10px;padding:9px 12px;font-size:12px;font-weight:600;margin-bottom:14px">'
+                '🔴 The official portal has enabled its human-verification (CAPTCHA) right now — '
+                'this blocks every app (the other student app is paused too). '
+                '<a href="%s" target="_blank" rel="noopener" style="font-weight:800;color:#9B1C1C;'
+                'text-decoration:underline">Open the official portal directly ↗</a> '
+                'and check there. Come back and try again when this turns green.</div>' % PORTAL_URL)
     body = ('<div class="login-wrap"><div class="login-card">'
             '<div class="brand"><img src="/static/logo.png" alt="JNTUACEA">'
             '<div class="bt">%s</div>'
             '<div class="bs">Student Academic Record Book</div>'
             '<div class="bl">Accredited by NAAC with "A" Grade</div></div>'
-            % (esc(COLLEGE),))
+            '%s'
+            % (esc(COLLEGE), pill))
     if err:
         body += ('<div class="notice red">%s</div>' % esc(err))
     body += ('<form method="post" action="/login">'
@@ -841,10 +882,17 @@ class App(BaseHTTPRequestHandler):
         except ImportError:
             return self.send(200, page_login('Sync engine is not installed on this server.'))
         except scraper.PortalError as e:
-            return self.send(200, page_error(str(e), '/login'))
+            msg = str(e)
+            if 'CAPTCHA' in msg or 'verification' in msg.lower() or 'Use https' in msg:
+                return self.send(200, page_login(
+                    'The official portal blocked the automated login (it is showing a human '
+                    'verification right now). This blocks every app — the other student app is '
+                    'paused too. Open the official portal directly to check your attendance, and '
+                    'try here again when the green status shows.'))
+            return self.send(200, page_login('Official portal: %s' % msg))
         except Exception:
-            return self.send(200, page_error(
-                'Could not connect to the official portal. Please try again in a minute.', '/login'))
+            return self.send(200, page_login(
+                'Could not connect to the official portal. Please try again in a minute.'))
         store_fetch(username, data)
         if data.get('session') is not None:
             ACTIVE_SESSIONS[username] = data['session']
@@ -982,7 +1030,14 @@ class App(BaseHTTPRequestHandler):
         if os.path.isfile(full):
             with open(full, 'rb') as fh:
                 data = fh.read()
-            ctype = 'image/png' if fname.endswith('.png') else 'application/octet-stream'
+            if fname.endswith('.png'):
+                ctype = 'image/png'
+            elif fname.endswith('.html'):
+                ctype = 'text/html; charset=utf-8'
+            elif fname.endswith('.svg'):
+                ctype = 'image/svg+xml'
+            else:
+                ctype = 'application/octet-stream'
             return self.send(200, data, ctype, extra_headers=[('Cache-Control', 'max-age=86400')])
         self.send(404, 'not found', 'text/plain')
 
