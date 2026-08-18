@@ -24,7 +24,10 @@ database file, so it is shared online between all users.
 
 **Admin panel**
 - Mark attendance per subject + date: Present / Absent with "All Present" quick buttons
-- Add students one by one or **bulk import via CSV** (`roll,name,branch,year,section`)
+- Add students one by one or **bulk import via CSV** (`roll,name,branch,year,section,dob`)
+- **📥 Import Data tab** — official portal data ni same ga load cheyadaniki:
+  - Students import (header auto-detect, full branch names support)
+  - Attendance import (`roll,subject,date,status` — code OR subject name, any date format)
 - Manage subjects (code, name, branch, year, section)
 - Consolidated reports with filters + **CSV download** (for defaulter lists in Excel)
 - Students below 75% alert list on the admin home page
@@ -33,10 +36,19 @@ database file, so it is shared online between all users.
 - Change admin password, reset demo data
 
 **Student portal**
+- Login: **Roll Number + Roll Number or DOB** (official portal style — DDMMYYYY)
+- **🔄 Sync from Official Portal** — mee official portal (jntuaceastudents.classattendance.in)
+  login details enter chesthe, mee own attendance ni official portal nunchi techi
+  mana app lo chupistundi (password store cheyyamu; 30 min ki okasari limit)
 - Dashboard: overall %, today's classes, subject-wise % rings
 - Full attendance history with month/subject filters + printable statement
+  (source label: Admin / Official Portal / Self / Imported)
 - Self-mark button when the admin opens a window
 - Change password
+
+> Sync engine (`scraper.py`) needs `requests` + `beautifulsoup4`:
+> `pip install -r requirements.txt`. Official portal protection change chesinappudu
+> sync temporarily fail avvachu — appudu Import Data tab use cheyandi.
 
 ---
 

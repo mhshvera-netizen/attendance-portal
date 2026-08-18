@@ -81,6 +81,23 @@ def sha(txt):
     return hashlib.sha256(txt.encode()).hexdigest()
 
 
+def dob_matches(password, dob):
+    """Login password vs stored DOB — tolerant of separators & ddmmyyyy/yyyymmdd order."""
+    if not dob:
+        return False
+    p = re.sub(r'[^0-9]', '', password or '')
+    d = re.sub(r'[^0-9]', '', dob)
+    if not p or not d:
+        return False
+    if p == d:
+        return True
+    if len(p) == 8 and len(d) == 8:
+        swapped = d[6:8] + d[4:6] + d[0:4]  # yyyymmdd -> ddmmyyyy
+        if p == swapped:
+            return True
+    return False
+
+
 def now_ist():
     return datetime.now(IST)
 
@@ -95,7 +112,7 @@ def db_init():
     CREATE TABLE IF NOT EXISTS students(
       roll TEXT PRIMARY KEY, name TEXT NOT NULL, branch TEXT NOT NULL,
       year INTEGER NOT NULL, section TEXT NOT NULL DEFAULT 'A',
-      password TEXT NOT NULL, email TEXT DEFAULT '');
+      password TEXT NOT NULL, email TEXT DEFAULT '', dob TEXT NOT NULL DEFAULT '');
     CREATE TABLE IF NOT EXISTS subjects(
       id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL, name TEXT NOT NULL,
       branch TEXT NOT NULL, year INTEGER NOT NULL, section TEXT NOT NULL DEFAULT '');
@@ -114,9 +131,16 @@ def db_init():
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       subject_id INTEGER NOT NULL, date TEXT NOT NULL,
       open_until TEXT DEFAULT '', enabled INTEGER DEFAULT 1);
+    CREATE TABLE IF NOT EXISTS sync_log(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, roll TEXT NOT NULL,
+      at TEXT NOT NULL, ok INTEGER DEFAULT 0, message TEXT DEFAULT '');
     """)
     if not con.execute("SELECT 1 FROM settings WHERE key='admin_pass'").fetchone():
         con.execute("INSERT INTO settings(key,value) VALUES('admin_pass', ?)", (sha('admin123'),))
+    # migration: add dob column to existing databases
+    cols = [r['name'] for r in con.execute("PRAGMA table_info(students)").fetchall()]
+    if 'dob' not in cols:
+        con.execute("ALTER TABLE students ADD COLUMN dob TEXT NOT NULL DEFAULT ''")
     con.commit()
     con.close()
     seed_demo()
@@ -146,9 +170,10 @@ def seed_demo():
     for i in range(6):
         students.append(('23A51A05%02d' % (i + 1), names[i + 10], 'CSE', 1, 'A'))
     con = conn()
-    for roll, nm, br, yr, sec in students:
-        con.execute("INSERT OR IGNORE INTO students(roll,name,branch,year,section,password) VALUES(?,?,?,?,?,?)",
-                    (roll, nm, br, yr, sec, sha(roll)))
+    for idx, (roll, nm, br, yr, sec) in enumerate(students):
+        dob = '%04d-%02d-%02d' % (2003 + (idx % 3), (idx * 7) % 12 + 1, (idx * 13) % 28 + 1)
+        con.execute("INSERT OR IGNORE INTO students(roll,name,branch,year,section,password,dob) VALUES(?,?,?,?,?,?,?)",
+                    (roll, nm, br, yr, sec, sha(roll), dob))
     subjects = [
         ('19A05402', 'Operating Systems', 'CSE', 2),
         ('19A05403', 'Database Management Systems', 'CSE', 2),
@@ -269,6 +294,70 @@ def pct_of(st):
     return (st['p'] * 100.0 / st['t']) if st['t'] else 0.0
 
 
+def norm_date_any(s):
+    """Flexible date parser: dd-mm-yyyy, dd/mm/yyyy, yyyy-mm-dd, dd-Mon-yyyy."""
+    s = (s or '').strip()
+    m = re.match(r'^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$', s)
+    if m:
+        return '%s-%s-%s' % (m.group(3), m.group(2).zfill(2), m.group(1).zfill(2))
+    m = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})$', s)
+    if m:
+        return '%s-%02d-%02d' % (m.group(1), int(m.group(2)), int(m.group(3)))
+    try:
+        return datetime.strptime(s, '%d-%b-%Y').strftime('%Y-%m-%d')
+    except Exception:
+        try:
+            return datetime.strptime(s, '%d %b %Y').strftime('%Y-%m-%d')
+        except Exception:
+            return ''
+
+
+def find_or_create_subject(name, branch, year):
+    """Match official subject by name; auto-create under student branch/year if new."""
+    nm = name.strip()
+    subj = q1("SELECT * FROM subjects WHERE upper(name)=? AND branch=? AND year=?",
+              (nm.upper(), branch, year))
+    if not subj:
+        subj = q1("SELECT * FROM subjects WHERE upper(name)=?", (nm.upper(),))
+    if not subj:
+        subj = q1("SELECT * FROM subjects WHERE upper(name) LIKE ?",
+                  ('%' + nm.upper() + '%',))
+    if subj:
+        return subj['id']
+    code = 'OF' + hashlib.sha256(nm.upper().encode()).hexdigest()[:6].upper()
+    cur = run("INSERT INTO subjects(code,name,branch,year,section) VALUES(?,?,?,?,'')",
+              (code, nm, branch, year))
+    return cur.lastrowid
+
+
+def apply_official_sync(roll, odata):
+    """Store official portal records for a student. Returns (subjects_synced, records_synced)."""
+    st = q1("SELECT branch, year FROM students WHERE roll=?", (roll,))
+    if not st:
+        return 0, 0
+    total_recs = total_subs = 0
+    for subj in odata.get('subjects', []):
+        nm = (subj.get('subject') or '').strip()
+        if not nm:
+            continue
+        sid = find_or_create_subject(nm, st['branch'], st['year'])
+        stored = 0
+        for rec in subj.get('records', []):
+            d = norm_date_any(rec.get('date', ''))
+            if not d or rec.get('status') not in ('P', 'A'):
+                continue
+            run("INSERT INTO attendance(roll,subject_id,date,status,marked_by,marked_at) "
+                "VALUES(?,?,?,?, 'official', ?) "
+                "ON CONFLICT(roll,subject_id,date) DO UPDATE SET status=excluded.status, "
+                "marked_by='official', marked_at=excluded.marked_at",
+                (roll, sid, d, rec['status'], now_ist().isoformat(timespec='seconds')))
+            stored += 1
+        if stored:
+            total_subs += 1
+            total_recs += stored
+    return total_subs, total_recs
+
+
 # ---------------------------------------------------------------- CSS -------
 CSS = """
 *{box-sizing:border-box;margin:0;padding:0}
@@ -353,6 +442,8 @@ box-shadow:0 20px 60px rgba(0,0,0,.35)}
 .login-btn{width:100%;padding:12px;font-size:15px;margin-top:6px}
 .hint{font-size:12px;color:var(--muted);text-align:center;margin-top:14px;background:#f4f7fc;border-radius:8px;padding:8px}
 .err{background:#fdeeee;color:#8f2f2f;border:1px solid #f2c4c4;border-radius:9px;padding:10px 14px;font-size:13px;margin-bottom:14px}
+.ok{background:#e8f7ee;color:#16603a;border:1px solid #bfe6cf;border-radiusfc;border-radius:8px;padding:8px}
+.err{background:#fdeeee;color:#8f2f2f;border:1px solid #f2c4c4;border-radius:9px;padding:10px 14px;font-size:13px;margin-bottom:14px}
 .ok{background:#e8f7ee;color:#16603a;border:1px solid #bfe6cf;border-radius:9px;padding:10px 14px;font-size:13px;margin-bottom:14px}
 .footer{text-align:center;color:var(--muted);font-size:12.5px;padding:26px 16px 40px}
 .footer b{color:var(--navy)}
@@ -372,6 +463,7 @@ def page(title, body, nav=None, student=None, admin=False, extra_head=''):
     elif student:
         nav = ('<div class="tabs">'
                '<a class="tab on" href="/student">Dashboard</a>'
+               '<a class="tab" href="/student/sync">🔄 Sync Official</a>'
                '<a class="tab" href="/student/history">Attendance History</a>'
                '<a class="tab" href="/student/password">Change Password</a></div>')
     elif admin:
@@ -382,8 +474,9 @@ def page(title, body, nav=None, student=None, admin=False, extra_head=''):
                '<a class="tab %s" href="/admin/subjects">Subjects</a>'
                '<a class="tab %s" href="/admin/reports">Reports</a>'
                '<a class="tab %s" href="/admin/selfmark">Self-Mark</a>'
+               '<a class="tab %s" href="/admin/import">Import Data</a>'
                '<a class="tab %s" href="/admin/settings">Settings</a></div>'
-               % (admin, admin, admin, admin, admin, admin, admin))
+               % (admin, admin, admin, admin, admin, admin, admin, admin))
     return ('<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width,initial-scale=1">'
             '<title>%s | JNTUACEA – Academic Record Book</title><link rel="icon" href="/static/logo.png">%s'
@@ -443,7 +536,8 @@ def page_login(err='', ok='', admin=False):
                 'Admin Username' if admin else 'Roll Number',
                 'e.g. 22A51A0501' if not admin else 'admin',
                 'Password',
-                'Default password is your Roll Number. Please change it after your first login.'
+                'Default password: Roll Number or DOB (DDMMYYYY). Official portal credentials tho '
+                'direct ga login cheyachu — mee official attendance auto sync avthundi.'
                 if not admin else 'Default admin password: admin123'))
     return page('Login', topbar() + body, nav='')
 
@@ -504,6 +598,18 @@ def page_student_dash(st, msg=''):
     if msg:
         body += '<div class="ok">%s</div>' % esc(msg)
     body += sm_html
+    # official portal sync card
+    last_sync = q1("SELECT * FROM sync_log WHERE roll=? ORDER BY id DESC LIMIT 1", (st['roll'],))
+    sync_info = ''
+    if last_sync:
+        ok_badge = '<span class="badge b-p">OK</span>' if last_sync['ok'] else '<span class="badge b-a">Failed</span>'
+        sync_info = ('<div class="sub" style="margin-top:8px">Last sync: <b>%s</b> %s</div>'
+                     % (esc(last_sync['at']), ok_badge))
+    body += ('<div class="card" style="margin-bottom:16px"><h3><span class="bar"></span>🔄 Official Portal Sync</h3>'
+             '<p class="sub">Mee official portal (jntuaceastudents.classattendance.in) attendance ni '
+             'ikkada sync chesukondi — mee official account tho login ayyi data techukuntundi.</p>'
+             '<div class="btn-row"><a class="btn green" href="/student/sync">🔄 Sync Now</a></div>'
+             '%s</div>' % sync_info)
     body += ('<div class="grid g2" style="margin-bottom:16px">'
              '<div class="card"><h3><span class="bar"></span>Overall Attendance</h3>'
              '<div class="grid g2"><div class="stat"><div class="num" style="color:%s">%.1f%%</div>'
@@ -536,9 +642,10 @@ def page_student_history(st, subject_id=None, month=None, print_mode=False):
                 " ORDER BY a.date DESC, s.code LIMIT 400", args)
     tr = ''
     for r in rows:
-        tr += '<tr><td>%s <span class="sub">(%s)</span></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>' % (
-            fmt_date(r['date']), weekday_name(r['date']), esc(r['code']), esc(r['name']),
-            status_badge(r['status']), 'Self' if r['marked_by'] == 'self' else 'Admin')
+            tr += '<tr><td>%s <span class="sub">(%s)</span></td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>' % (
+                fmt_date(r['date']), weekday_name(r['date']), esc(r['code']), esc(r['name']),
+                status_badge(r['status']),
+                {'self': 'Self', 'official': 'Official Portal', 'import': 'Imported'}.get(r['marked_by'], 'Admin'))
     subj_opts = ''.join('<option value="%s"%s>%s – %s</option>' % (s['id'], ' selected' if str(s['id']) == str(subject_id) else '', esc(s['code']), esc(s['name'])) for s in subs)
     month_opts = ''
     for i in range(5, -1, -1):
@@ -566,6 +673,44 @@ def page_student_history(st, subject_id=None, month=None, print_mode=False):
              '%s</table><div class="btn-row no-print" style="margin-top:14px">'
              '<button class="btn sm" onclick="window.print()">🖨 Print</button></div></div>' % (tr or '<tr><td colspan="5" class="sub">No records found.</td></tr>'))
     return page('Attendance History', topbar(student=st) + body, student=st)
+
+
+def page_student_sync(st, msg='', err=''):
+    last = q1("SELECT * FROM sync_log WHERE roll=? ORDER BY id DESC LIMIT 1", (st['roll'],))
+    body = ''
+    if msg:
+        body += '<div class="ok">%s</div>' % esc(msg)
+    if err:
+        body += '<div class="err">%s</div>' % esc(err)
+    last_html = ''
+    if last:
+        state = '<span class="badge b-p">Success</span>' if last['ok'] else '<span class="badge b-a">Failed</span>'
+        last_html = ('<div class="sub" style="margin-top:10px">Last sync: <b>%s</b> %s — %s</div>'
+                     % (esc(last['at']), state, esc(last['message'])))
+    body += ('<div class="card" style="max-width:560px"><h3><span class="bar"></span>🔄 Sync from Official Portal</h3>'
+             '<p class="sub" style="margin-bottom:12px">'
+             'Mee official portal (jntuaceastudents.classattendance.in) login details enter cheyandi. '
+             'Mana app mee official account ki login ayyi, <b>mee attendance data</b> ni techi, '
+             'dashboard lo chupistundi.</p>'
+             '<div class="notice">🔒 Mee password <b>okkasari matrame</b> use avthundi — '
+             'save cheyyamu, store cheyyamu.</div>'
+             '<form class="form" method="post" action="/student/sync">'
+             '<div><label>Roll Number</label><input value="%s" disabled></div>'
+             '<div><label>Official Portal Password</label>'
+             '<div class="passwrap"><input type="password" name="password" id="pw" required '
+             'placeholder="Official portal password" autocomplete="off">'
+             '<button type="button" class="eye" onclick="togglePw()">👁</button></div></div>'
+             '<div class="btn-row"><button class="btn green">🔄 Sync Now</button></div></form>'
+             '%s</div>'
+             % (esc(st['roll']), last_html))
+    body += ('<div class="card" style="max-width:560px;margin-top:16px"><h3><span class="bar"></span>ℹ Notes</h3>'
+             '<ul class="sub" style="padding-left:18px;display:grid;gap:6px">'
+             '<li>Sync mee <b>own</b> attendance matrame chupistundi (andari data kaadu).</li>'
+             '<li>Sync aina data mana app lo <b>Official</b> source ga save avthundi — '
+             'mana app lo admin mark chesina data tho kalipi % calculate avthundi.</li>'
+             '<li>Portal protection change aite sync fail avvachu — appudu Import Data tab use cheyandi.</li>'
+             '<li>30 minutes ki okasari matrame sync cheyachu (portal ni gentle ga handle cheyadaniki).</li></ul></div>')
+    return page('Sync', topbar(student=st) + body, student=st)
 
 
 def page_student_password(st, msg='', err=''):
@@ -676,13 +821,14 @@ def page_admin_students(msg='', err=''):
              + ''.join('<option>%s</option>' % b for b in BRANCHES) +
              '</select></div><div><label>Year</label><select name="year">'
              '<option>1</option><option>2</option><option>3</option><option>4</option></select></div>'
-             '<div><label>Section</label><select name="section"><option>A</option><option>B</option></select></div></div>'
-             '<div class="small-note">Default password = Roll Number. Student can change it after login.</div>'
+             '<div><label>Section</label><select name="section"><option>A</option><option>B</option></select></div>'
+             '<div><label>Date of Birth (optional)</label><input type="date" name="dob"></div></div>'
+             '<div class="small-note">Default password = Roll Number or DOB. Student can change it after login.</div>'
              '<div><button class="btn">Add Student</button></div></form></div>'
              '<div class="card"><h3><span class="bar"></span>Bulk Add (CSV)</h3>'
              '<form class="form" method="post" action="/admin/students/bulk">'
-             '<div><label>Paste CSV — one per line: <code>roll,name,branch,year,section</code></label>'
-             '<textarea name="csv" rows="7" placeholder="22A51A0501,Ravi Teja,CSE,2,A&#10;22A51A0502,Sneha M,CSE,2,A"></textarea></div>'
+             '<div><label>Paste CSV — one per line: <code>roll,name,branch,year,section,dob(optional)</code></label>'
+             '<textarea name="csv" rows="7" placeholder="roll,name,branch,year,section,dob&#10;22A51A0501,Ravi Teja,CSE,2,A,2004-05-14&#10;22A51A0502,Sneha M,CSE,2,A,10-08-2004"></textarea></div>'
              '<div><button class="btn gold">Import Students</button></div></form></div></div>')
     body += ('<div class="card"><h3><span class="bar"></span>All Students (%d)</h3>'
              '<div style="margin-bottom:10px"><input placeholder="🔍 Search by name / roll…" '
@@ -807,6 +953,38 @@ def page_admin_selfmark(msg='', err=''):
              '<table><tr><th>Date</th><th>Subject</th><th>Class</th><th>Window</th><th>State</th><th></th></tr>'
              '%s</table></div>' % (tr or '<tr><td colspan="6" class="sub">No self-mark windows yet.</td></tr>'))
     return page('Self-Mark', topbar(admin=True) + body, admin='on')
+
+
+def page_admin_import(msg='', err=''):
+    body = ''
+    if msg:
+        body += '<div class="ok">%s</div>' % esc(msg)
+    if err:
+        body += '<div class="err">%s</div>' % esc(err)
+    body += ('<div class="card" style="margin-bottom:16px"><h3><span class="bar"></span>📥 Import Students (same as official portal list)</h3>'
+             '<p class="sub" style="margin-bottom:10px">Official college list nunchi students ni exact ga import cheyandi. '
+             '<b>Header line ok — automatic ga detect avthundi.</b> Columns (any order, header names flexible): '
+             '<code>roll</code>, <code>name</code>, <code>branch</code> (CSE/ECE/EEE/ME/CE), <code>year</code> (1-4), '
+             '<code>section</code> (A/B), <code>dob</code> (optional). Default password = Roll Number or DOB.</p>'
+             '<form class="form" method="post" action="/admin/students/bulk">'
+             '<textarea name="csv" rows="8" placeholder="Roll No,Name,Branch,Year,Section,DOB&#10;22A51A0501,Abhishek Reddy,CSE,2,A,01-01-2003&#10;22A51A0502,Akhila S,CSE,2,A,14-08-2004"></textarea>'
+             '<div><button class="btn gold">⬆ Import Students</button></div></form></div>')
+    body += ('<div class="card"><h3><span class="bar"></span>📥 Import Attendance (same as official portal record)</h3>'
+             '<p class="sub" style="margin-bottom:10px">Official portal nunchi export ayyina attendance data ni paste cheyandi. '
+             '<b>Header line ok.</b> Columns (any order): <code>roll</code>, <code>subject</code> (code or name), '
+             '<code>date</code>, <code>status</code> (P/A/Present/Absent/1/0). '
+             'Already unna records update avthayi (overwrite kaadu — latest value save).</p>'
+             '<form class="form" method="post" action="/admin/attendance/import">'
+             '<textarea name="csv" rows="8" placeholder="roll,subject,date,status&#10;22A51A0501,19A05402,18-08-2026,P&#10;22A51A0502,19A05402,18-08-2026,A"></textarea>'
+             '<div class="small-note">💡 Excel/Sheets lo unte: attendance data copy chesi ikkada paste cheyandi. '
+             'Official portal lo attendance export ledu ante, college office nunchi list techukondi.</div>'
+             '<div><button class="btn green">⬆ Import Attendance</button></div></form></div>')
+    body += ('<div class="card" style="margin-top:16px"><h3><span class="bar"></span>ℹ Official Portal Data Ela Techukovali?</h3>'
+             '<ol class="sub" style="padding-left:18px;display:grid;gap:6px">'
+             '<li><b>College office / exam cell</b> ni adugutharu: students list (roll + name + DOB) and attendance registers — vaallu Excel lo istaru.</li>'
+             '<li>Mee college ki <b>classattendance.in admin access</b> unte, aa portal lo kuda reports/export option untundi — adi use cheyachu.</li>'
+             '<li>Ikkada import chesthe, mana app lo <b>same students, same DOB login, same attendance %</b> kanipistundi.</li></ol></div>')
+    return page('Import Data', topbar(admin=True) + body, admin='on')
 
 
 def page_admin_settings(msg='', err=''):
@@ -973,6 +1151,8 @@ class App(BaseHTTPRequestHandler):
                     print_mode=q.get('print') is not None))
             if path == '/student/password':
                 return self.send(200, page_student_password(st))
+            if path == '/student/sync':
+                return self.send(200, page_student_sync(st))
             return self.redir('/student')
         # ---- admin zone
         if sess and sess['role'] == 'admin':
@@ -992,6 +1172,8 @@ class App(BaseHTTPRequestHandler):
                 return self.send(st_, body_, ct_, filename=fn_)
             if path == '/admin/selfmark':
                 return self.send(200, page_admin_selfmark())
+            if path == '/admin/import':
+                return self.send(200, page_admin_import())
             if path == '/admin/settings':
                 return self.send(200, page_admin_settings())
             return self.redir('/admin')
@@ -1015,12 +1197,48 @@ class App(BaseHTTPRequestHandler):
             roll = self.field(f, 'roll').upper().replace(' ', '')
             pw = self.field(f, 'password')
             st = q1("SELECT * FROM students WHERE roll=?", (roll,))
-            if st and sha(pw) == st['password']:
+            if st and (sha(pw) == st['password'] or dob_matches(pw, st['dob'])):
                 tok = self.new_session('student', roll)
                 return self.redir_ck('/student', tok)
+            # ---- Friend-app mode: direct official portal login (roll + official password)
+            odata = None
+            perr = ''
+            try:
+                import scraper
+                odata = scraper.official_fetch(roll, pw, max_subjects=12, polite_delay=0.1)
+            except ImportError:
+                pass
+            except scraper.PortalError as e:
+                perr = str(e)
+            except Exception:
+                perr = 'Official portal check failed. Please try again.'
+            if odata is not None:
+                if not st:
+                    run("INSERT INTO students(roll,name,branch,year,section,password,dob) VALUES(?,?,?,?,'A',?,'')",
+                        (roll, odata.get('name') or roll, odata.get('branch') or 'CSE',
+                         int(odata.get('year') or 2), sha(roll)))
+                elif odata.get('name'):
+                    run("UPDATE students SET name=? WHERE roll=?", (odata.get('name'), roll))
+                subs, recs = apply_official_sync(roll, odata)
+                run("INSERT INTO sync_log(roll,at,ok,message) VALUES(?,?,1,?)",
+                    (roll, now_ist().isoformat(timespec='seconds'),
+                     '%d subjects, %d records synced' % (subs, recs)))
+                tok = self.new_session('student', roll)
+                flash_h = ('Set-Cookie', 'flash=%s; Path=/; Max-Age=8; HttpOnly'
+                           % quote('Official portal tho login ayyindi — %d subjects, %d records sync ayyayi ✅'
+                                   % (subs, recs)))
+                return self.send(303, '', extra_headers=[('Location', '/student')]
+                                 + self.set_cookie(tok) + [flash_h])
             if st:
-                return self.send(200, page_login(err='Incorrect password. (If you never changed it, your password is your Roll Number.)'))
-            return self.send(200, page_login(err='Roll number not found. Please check and try again.'))
+                msg = 'Incorrect password. (Default: Roll Number or DOB in DDMMYYYY format.)'
+                if perr:
+                    msg += ' Official portal also failed: %s' % perr
+                return self.send(200, page_login(err=msg))
+            msg = 'Roll number not found. Official portal lo unna students — official password (DOB) '
+            msg += 'tho direct ga login cheyandi, mana app auto ga account create chesthundi.'
+            if perr:
+                msg += ' (Official portal check: %s)' % perr
+            return self.send(200, page_login(err=msg))
         # ---- auth guard
         if not sess:
             return self.redir('/login')
@@ -1066,6 +1284,49 @@ class App(BaseHTTPRequestHandler):
                     return self.send(200, page_student_password(st, err='Current password is incorrect.'))
                 run("UPDATE students SET password=? WHERE roll=?", (sha(new), st['roll']))
                 return self.send(200, page_student_password(st, msg='Password updated successfully!'))
+            if path == '/student/sync':
+                pw = self.field(f, 'password')
+                if not pw:
+                    return self.send(200, page_student_sync(st, err='Please enter your official portal password.'))
+                # throttle: max one sync per 30 minutes per student (gentle with the portal)
+                last_ok = q1("SELECT at FROM sync_log WHERE roll=? AND ok=1 ORDER BY id DESC LIMIT 1",
+                             (st['roll'],))
+                if last_ok:
+                    try:
+                        last_dt = datetime.fromisoformat(last_ok['at'])
+                        if (now_ist() - last_dt).total_seconds() < 30 * 60:
+                            return self.send(200, page_student_sync(
+                                st, err='Recently sync ayyindi (%s). 30 minutes ayyaka malli cheyandi — '
+                                        'official portal ni gentle ga handle chestunnam.' % esc(last_ok['at'])))
+                    except Exception:
+                        pass
+                try:
+                    import scraper
+                    data = scraper.official_fetch(st['roll'], pw)
+                except ImportError:
+                    run("INSERT INTO sync_log(roll,at,ok,message) VALUES(?,?,0,?)",
+                        (st['roll'], now_ist().isoformat(timespec='seconds'),
+                         'Sync engine not installed on this server yet.'))
+                    return self.send(200, page_student_sync(st, err='Sync engine is not available on this server yet.'))
+                except scraper.PortalError as e:
+                    run("INSERT INTO sync_log(roll,at,ok,message) VALUES(?,?,0,?)",
+                        (st['roll'], now_ist().isoformat(timespec='seconds'), str(e)[:200]))
+                    return self.send(200, page_student_sync(st, err=str(e)))
+                except Exception as e:
+                    run("INSERT INTO sync_log(roll,at,ok,message) VALUES(?,?,0,?)",
+                        (st['roll'], now_ist().isoformat(timespec='seconds'),
+                         'Unexpected error: %s' % str(e)[:160]))
+                    return self.send(200, page_student_sync(st, err='Sync failed. Please try again later.'))
+                # store fetched records
+                total_subs, total_recs = apply_official_sync(st['roll'], data)
+                run("INSERT INTO sync_log(roll,at,ok,message) VALUES(?,?,1,?)",
+                    (st['roll'], now_ist().isoformat(timespec='seconds'),
+                     '%d subjects, %d records synced' % (total_subs, total_recs)))
+                self.send(303, '', extra_headers=[('Location', '/student'),
+                                                  ('Set-Cookie', 'flash=%s; Path=/; Max-Age=6; HttpOnly'
+                                                   % quote('Official portal nunchi sync ayyindi: %d subjects, %d records ✅'
+                                                           % (total_subs, total_recs)))])
+                return
             return self.redir('/student')
         if sess['role'] == 'admin':
             if path == '/admin/attendance':
@@ -1097,44 +1358,92 @@ class App(BaseHTTPRequestHandler):
                 branch = self.field(f, 'branch')
                 year = self.field(f, 'year')
                 section = self.field(f, 'section')
+                dob = self.field(f, 'dob')
                 if not roll or not name or branch not in BRANCHES:
                     return self.send(200, page_admin_students(err='Please fill all fields correctly.'))
                 if not re.match(r'^[A-Z0-9]{5,20}$', roll):
                     return self.send(200, page_admin_students(err='Roll number format looks invalid.'))
                 if q1("SELECT 1 FROM students WHERE roll=?", (roll,)):
                     return self.send(200, page_admin_students(err='Roll number %s already exists.' % roll))
-                run("INSERT INTO students(roll,name,branch,year,section,password) VALUES(?,?,?,?,?,?)",
-                    (roll, name, branch, int(year), section, sha(roll)))
-                return self.send(200, page_admin_students(msg='Student %s (%s) added. Default password = roll number.' % (name, roll)))
+                run("INSERT INTO students(roll,name,branch,year,section,password,dob) VALUES(?,?,?,?,?,?,?)",
+                    (roll, name, branch, int(year), section, sha(roll), dob))
+                return self.send(200, page_admin_students(msg='Student %s (%s) added. Default password = roll number or DOB.' % (name, roll)))
             if path == '/admin/students/bulk':
                 txt = self.field(f, 'csv')
                 ok, bad = 0, []
-                for i, line in enumerate(txt.splitlines()):
-                    line = line.strip()
-                    if not line:
-                        continue
+                lines = [l for l in txt.splitlines() if l.strip()]
+                # header detection + flexible column mapping
+                cols = None
+                if lines:
+                    first = lines[0].lower()
+                    if any(k in first for k in ('roll', 'name', 'branch', 'dob', 'student')):
+                        heads = [h.strip().lower() for h in lines.pop(0).split(',')]
+                        cols = {}
+                        for i, h in enumerate(heads):
+                            if 'roll' in h or 'ht' in h or 'id' in h:
+                                cols['roll'] = i
+                            elif 'name' in h:
+                                cols['name'] = i
+                            elif 'branch' in h or 'dept' in h or 'br' in h:
+                                cols['branch'] = i
+                            elif 'year' in h or 'sem' in h or 'class' in h:
+                                cols['year'] = i
+                            elif 'section' in h or 'sec' in h:
+                                cols['section'] = i
+                            elif 'dob' in h or 'birth' in h:
+                                cols['dob'] = i
+                        if 'roll' not in cols or 'name' not in cols:
+                            cols = None
+                for i, line in enumerate(lines):
                     parts = [p.strip() for p in line.split(',')]
-                    if len(parts) < 3:
-                        bad.append('line %d: not enough columns' % (i + 1))
-                        continue
-                    roll = parts[0].upper().replace(' ', '')
-                    name = parts[1]
-                    branch = parts[2]
-                    year = parts[3] if len(parts) > 3 else '1'
-                    section = parts[4] if len(parts) > 4 else 'A'
-                    if branch not in BRANCHES or not re.match(r'^[A-Z0-9]{5,20}$', roll):
-                        bad.append('line %d: %s (bad branch/roll)' % (i + 1, roll))
+                    def getc(key, default=''):
+                        if cols is not None:
+                            idx = cols.get(key)
+                            return parts[idx] if idx is not None and idx < len(parts) else default
+                        return default
+                    if cols is not None:
+                        roll = getc('roll').upper().replace(' ', '')
+                        name = getc('name')
+                        branch = getc('branch').upper() or 'CSE'
+                        year = getc('year') or '1'
+                        section = getc('section') or 'A'
+                        dob = getc('dob')
+                    else:
+                        if len(parts) < 3:
+                            bad.append('line %d: not enough columns' % (i + 1))
+                            continue
+                        roll = parts[0].upper().replace(' ', '')
+                        name = parts[1]
+                        branch = parts[2].upper()
+                        year = parts[3] if len(parts) > 3 else '1'
+                        section = parts[4] if len(parts) > 4 else 'A'
+                        dob = parts[5] if len(parts) > 5 else ''
+                    # normalize branch/year/dob (accept codes or full names)
+                    if branch not in BRANCHES:
+                        bl = branch.lower()
+                        match = next((b for b, nm in BRANCHES.items() if nm.lower() == bl or nm.lower().startswith(bl)), '')
+                        if not match:
+                            match = next((b for b in BRANCHES if bl.startswith(b.lower())), '')
+                        branch = match
+                    try:
+                        year = int(re.sub(r'[^0-9]', '', str(year)) or 1)
+                    except Exception:
+                        year = 1
+                    if not (1 <= year <= 4):
+                        year = 1
+                    if not re.match(r'^[A-Z0-9]{5,20}$', roll) or not name or not branch:
+                        bad.append('line %d: %s (bad roll/name/branch)' % (i + 1, roll))
                         continue
                     if q1("SELECT 1 FROM students WHERE roll=?", (roll,)):
                         bad.append('line %d: %s already exists' % (i + 1, roll))
                         continue
-                    run("INSERT INTO students(roll,name,branch,year,section,password) VALUES(?,?,?,?,?,?)",
-                        (roll, name, branch, int(year), section, sha(roll)))
+                    run("INSERT INTO students(roll,name,branch,year,section,password,dob) VALUES(?,?,?,?,?,?,?)",
+                        (roll, name, branch, int(year), section, sha(roll), dob))
                     ok += 1
                 msg = 'Imported %d students.' % ok
                 if bad:
                     msg += ' Skipped: ' + '; '.join(bad[:5])
-                return self.send(200, page_admin_students(msg=msg))
+                return self.send(200, page_admin_import(msg=msg))
             if path == '/admin/students/delete':
                 roll = self.field(f, 'roll')
                 run("DELETE FROM attendance WHERE roll=?", (roll,))
@@ -1170,6 +1479,94 @@ class App(BaseHTTPRequestHandler):
                 enabled = self.field(f, 'enabled')
                 run("UPDATE selfmark SET enabled=? WHERE id=?", (int(enabled), sid))
                 return self.redir('/admin/selfmark')
+            if path == '/admin/attendance/import':
+                txt = self.field(f, 'csv')
+                lines = [l for l in txt.splitlines() if l.strip()]
+                cols = None
+                if lines:
+                    first = lines[0].lower()
+                    if any(k in first for k in ('roll', 'subject', 'sub', 'date', 'status', 'att')):
+                        heads = [h.strip().lower() for h in lines.pop(0).split(',')]
+                        cols = {}
+                        for i, h in enumerate(heads):
+                            if 'roll' in h or 'ht' in h or 'id' in h:
+                                cols['roll'] = i
+                            elif 'subject' in h or 'sub' in h or 'code' in h or 'course' in h:
+                                cols['subj'] = i
+                            elif 'date' in h:
+                                cols['date'] = i
+                            elif 'status' in h or 'att' in h or 'mark' in h or 'pres' in h or 'absent' in h:
+                                cols['status'] = i
+                        if 'roll' not in cols or 'subj' not in cols or 'date' not in cols:
+                            cols = None
+                ok, bad = 0, []
+                for i, line in enumerate(lines):
+                    parts = [p.strip() for p in line.split(',')]
+                    if cols is not None:
+                        def g(k):
+                            idx = cols.get(k)
+                            return parts[idx] if idx is not None and idx < len(parts) else ''
+                        roll = g('roll').upper().replace(' ', '')
+                        subj_ref = g('subj').upper().strip()
+                        date_s = g('date')
+                        status_raw = g('status')
+                    else:
+                        if len(parts) < 4:
+                            bad.append('line %d: not enough columns' % (i + 1))
+                            continue
+                        roll = parts[0].upper().replace(' ', '')
+                        subj_ref = parts[1].upper().strip()
+                        date_s = parts[2]
+                        status_raw = parts[3]
+                    # date normalize: dd-mm-yyyy, dd/mm/yyyy, dd-mon-yyyy, yyyy-mm-dd
+                    m = re.match(r'^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$', date_s)
+                    if m:
+                        date_n = '%s-%s-%s' % (m.group(3), m.group(2).zfill(2), m.group(1).zfill(2))
+                    else:
+                        m = re.match(r'^(\d{4})-(\d{1,2})-(\d{1,2})$', date_s)
+                        if m:
+                            date_n = '%s-%02d-%02d' % (m.group(1), int(m.group(2)), int(m.group(3)))
+                        else:
+                            try:
+                                date_n = datetime.strptime(date_s, '%d-%b-%Y').strftime('%Y-%m-%d')
+                            except Exception:
+                                bad.append('line %d: bad date "%s"' % (i + 1, date_s))
+                                continue
+                    # status normalize
+                    sr = status_raw.lower()
+                    if sr in ('p', '1', 'present', 'yes', 'y', 'true'):
+                        status = 'P'
+                    elif sr in ('a', '0', 'absent', 'no', 'n', 'false'):
+                        status = 'A'
+                    else:
+                        bad.append('line %d: bad status "%s" (use P/A)' % (i + 1, status_raw))
+                        continue
+                    st = q1("SELECT branch, year FROM students WHERE roll=?", (roll,))
+                    if not st:
+                        bad.append('line %d: %s unknown student' % (i + 1, roll))
+                        continue
+                    # subject: prefer code+branch+year, then code alone, then name
+                    subj = q1("SELECT * FROM subjects WHERE upper(code)=? AND branch=? AND year=?",
+                              (subj_ref, st['branch'], st['year']))
+                    if not subj:
+                        subj = q1("SELECT * FROM subjects WHERE upper(code)=?", (subj_ref,))
+                    if not subj:
+                        subj = q1("SELECT * FROM subjects WHERE upper(name)=?", (subj_ref.upper(),))
+                    if not subj:
+                        subj = q1("SELECT * FROM subjects WHERE upper(name) LIKE ?",
+                                  ('%' + subj_ref + '%',))
+                    if not subj:
+                        bad.append('line %d: subject "%s" not found (add it in Subjects tab first)' % (i + 1, subj_ref))
+                        continue
+                    run("INSERT INTO attendance(roll,subject_id,date,status,marked_by,marked_at) "
+                        "VALUES(?,?,?,?, 'import', ?) "
+                        "ON CONFLICT(roll,subject_id,date) DO UPDATE SET status=excluded.status, marked_by='import', marked_at=excluded.marked_at",
+                        (roll, subj['id'], date_n, status, now_ist().isoformat(timespec='seconds')))
+                    ok += 1
+                msg = 'Imported %d attendance records.' % ok
+                if bad:
+                    msg += ' Skipped: ' + '; '.join(bad[:6])
+                return self.send(200, page_admin_import(msg=msg))
             if path == '/admin/password':
                 old = self.field(f, 'old')
                 new = self.field(f, 'new')
