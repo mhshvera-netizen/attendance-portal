@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" sizes="180x180" href="/icon.png">
+    <title>Error - JNTUA Attendance Checker</title>
+    <!-- Tailwind CSS for a modern, responsive design -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/output.css') }}">
+    <!-- Google Fonts: Inter for clean typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <meta name="title" content="Error - JNTUA Attendance">
+    <meta name="description" content="An error occurred while loading the JNTUA Attendance app.">
+    <meta name="keywords" content="JNTUA Attendance, error page, attendance checker">
+    <meta name="author" content="JNTUA Attendance">
+    <meta name="robots" content="noindex, nofollow, noarchive">
+    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#7C3AED">
+    <link rel="canonical" href="https://jntua-attendance-app.vercel.app/error">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://jntua-attendance-app.vercel.app/error">
+    <meta property="og:title" content="Error - JNTUA Attendance">
+    <meta property="og:description" content="An error occurred while loading the JNTUA Attendance app.">
+    <meta property="og:image" content="https://jntua-attendance-app.vercel.app/icon.png">
+    <meta property="og:site_name" content="JNTUA Attendance">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Error - JNTUA Attendance">
+    <meta name="twitter:description" content="An error occurred while loading the JNTUA Attendance app.">
+    <meta name="twitter:image" content="https://jntua-attendance-app.vercel.app/icon.png">
+
+    <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "JNTUA Attendance",
+  "url": "https://jntua-attendance-app.vercel.app/",
+  "description": "A student-friendly web application that fetches and displays real-time attendance data for JNTUA students.",
+  "applicationCategory": "EducationalApplication",
+  "operatingSystem": "Web",
+  "creator": {
+    "@type": "Person",
+    "name": "Chanikya",
+    "url": "https://github.com/Chanikya-WebDev"
+  },
+  {
+      "@context": "https://schema.org",
+      "@type": "WebPage",
+      "name": "Error - JNTUA Attendance",
+      "url": "https://jntua-attendance-app.vercel.app/error",
+      "description": "An error occurred while loading the JNTUA Attendance app.",
+      "inLanguage": "en-IN",
+      "isPartOf": {
+        "@type": "WebSite",
+        "name": "JNTUA Attendance",
+        "url": "https://jntua-attendance-app.vercel.app/"
+      }
+    }
+  "publisher": {
+    "@type": "Organization",
+    "name": "JNTUA Attendance Team",
+    "url": "https://jntua-attendance-app.vercel.app/"
+  },
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "INR"
+  },
+  "inLanguage": "en-IN",
+  "softwareVersion": "1.0.0",
+  "datePublished": "2025-09-20",
+  "image": "https://jntua-attendance-app.vercel.app/icon.png",
+  "potentialAction": {
+    "@type": "SearchAction",
+    "target": "https://jntua-attendance-app.vercel.app/?query={search_term_string}",
+    "query-input": "required name=search_term_string"
+  }
+}
+</script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+      html {
+        color-scheme: light;
+        scroll-behavior: smooth;
+      }
+      body {
+        line-height: 1.5;
+        font-size: 16px;
+        text-rendering: optimizeLegibility;
+      }
+      :focus-visible {
+        outline: 3px solid #7C3AED;
+        outline-offset: 3px;
+      }
+      a, button, input, textarea, select {
+        -webkit-tap-highlight-color: transparent;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+          scroll-behavior: auto !important;
+        }
+      }
+    </style>
+    
+</head>
+<body class="bg-gray-100 flex flex-col min-h-screen">
+
+    <!-- Main Content Area -->
+    <main class="flex-grow flex items-center justify-center p-4 sm:p-6 md:p-8">
+        <div class="w-full max-w-md mx-auto">
+            
+            <!-- Error Card -->
+            <div class="bg-white rounded-xl shadow-md p-6 sm:p-8 md:p-10 border border-gray-200 text-center animate__animated animate__fadeInUp">
+                
+                <!-- Icon -->
+                <div class="mx-auto flex items-center justify-center h-16 w-16 sm:h-20 sm:w-20 rounded-full bg-red-100 mb-4 sm:mb-6">
+                    <i class="fas fa-exclamation-triangle text-3xl sm:text-4xl text-red-600"></i>
+                </div>
+
+                <h1 class="text-xl sm:text-2xl md:text-3xl font-bold text-gray-800 mb-3 sm:mb-4">Oops! Something went wrong</h1>
+                
+                <!-- Dynamic Error Message -->
+                <div class="bg-red-50 text-red-700 p-4 sm:p-5 rounded-lg border-l-4 border-red-500 mb-6 sm:mb-8 text-left">
+                    <p class="text-sm sm:text-base font-medium">{{ error_message }}</p>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3 sm:gap-4">
+                    <a href="{{ back_url }}" class="w-full sm:w-auto text-center px-6 py-2.5 bg-indigo-600 text-white font-medium text-sm rounded-lg shadow-md hover:bg-indigo-700 focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-150 ease-in-out">
+                        <i class="fas fa-arrow-left mr-2"></i>Go Back
+                    </a>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Professional and Responsive Footer -->
+    <footer class="bg-gray-800 text-gray-300 shadow-inner mt-auto">
+        <div class="container mx-auto px-6 py-8">
+            <div class="flex flex-col md:flex-row justify-evenly items-center md:items-center space-y-8 md:space-y-0">
+                
+                <div class="text-center md:text-center max-w-md mx-auto md:mx-0">
+                    <h3 class="font-semibold text-lg text-white mb-2">Contribute to this Project</h3>
+                    <p class="text-sm mb-4">
+                        This is an open-source project. Feel free to collaborate, report issues, or suggest improvements on GitHub.
+                    </p>
+                    <a href="https://github.com/Chanikya-WebDev/JNTUA---Attendance-app" target="_blank" rel="noopener noreferrer" 
+                       class="inline-flex items-center justify-center px-4 py-2 bg-gray-700 hover:bg-indigo-600 text-white font-medium rounded-lg shadow-md transition-colors duration-300">
+                        <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path fill-rule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.168 6.839 9.492.5.092.682-.217.682-.482 0-.237-.009-.868-.014-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.031-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.378.203 2.398.1 2.65.64.7 1.03 1.595 1.03 2.688 0 3.848-2.338 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.001 10.001 0 0022 12c0-5.523-4.477-10-10-10z" clip-rule="evenodd" />
+                        </svg>
+                        Contribute on GitHub
+                    </a>
+                </div>
+            </div>
+            <div class="mt-8 pt-6 border-t border-gray-700 text-center text-sm">
+                <p>&copy; 2026 JNTUA---Attendance-app. All Rights Reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+</body>
+</html>
