@@ -467,6 +467,16 @@ box-shadow:0 20px 60px rgba(0,0,0,.35)}
 .ok{background:#e8f7ee;color:#16603a;border:1px solid #bfe6cf;border-radius:9px;padding:10px 14px;font-size:13px;margin-bottom:14px}
 .footer{text-align:center;color:var(--muted);font-size:12.5px;padding:26px 16px 40px}
 .footer b{color:var(--navy)}
+.pbar{height:9px;background:#e6eaf2;border-radius:6px;margin:10px 0 8px;overflow:hidden}
+.pbar-fill{height:100%;border-radius:6px;transition:width .4s}
+.subj-head{display:flex;align-items:center;gap:12px}
+.subj-head .pct{font-size:22px;font-weight:800}
+.adv{font-size:12.5px;padding:6px 10px;border-radius:8px;margin-bottom:10px}
+.adv.good{background:#e4f6ec;color:#16603a}
+.adv.bad{background:#fdeaea;color:#8f2f2f}
+.adv.neutral{background:#eef1f6;color:#66748f}
+details{font-size:13px;color:var(--muted)}
+details summary{cursor:pointer;font-weight:600;color:var(--navy);padding:4px 0}
 .passwrap{position:relative}
 .passwrap .eye{position:absolute;right:10px;top:50%;transform:translateY(-50%);cursor:pointer;color:var(--muted);font-size:13px;user-select:none;background:none;border:none}
 .student-list label{display:flex;gap:8px;align-items:center;font-weight:400;color:var(--text);cursor:pointer;padding:4px 0}
@@ -557,23 +567,53 @@ def page_login(err='', ok='', admin=False):
                 'e.g. 22A51A0501' if not admin else 'admin',
                 'Password',
                 'Login: Roll Number + Roll Number (first time) or DOB (DDMMYYYY). '
-                'Kotha students ki account automatic ga create avthundi.'
+                'New students get their account created automatically.'
                 if not admin else 'Default admin password: admin123'))
     return page('Login', topbar() + body, nav='')
 
 
 # ------------------------------------------------------------ student pages --
+def skip_advice(p, t):
+    """75% rule advice for a subject."""
+    if t == 0:
+        return 'neutral', 'No classes recorded yet.'
+    pct = p * 100.0 / t
+    if pct >= 75:
+        can_skip = (4 * p - 3 * t) // 3
+        if can_skip > 0:
+            return 'good', 'You can skip up to <b>%d</b> more classes and still stay above 75%%.' % can_skip
+        return 'good', 'You are safely above 75%.'
+    need = max(1, 3 * t - 4 * p)
+    return 'bad', 'Attend the next <b>%d</b> classes to get back above 75%%.' % need
+
+
 def page_student_dash(st, msg=''):
     subs = student_subs(st['roll'])
     overall = subject_stats(st['roll'])
     cards = ''
     for s in subs:
         stt = subject_stats(st['roll'], s['id'])
-        cards += ('<div class="card"><div class="subj-card">'
-                  '<div class="info"><div class="code">%s</div><div class="nm">%s</div>'
-                  '<div class="cnt">%d of %d classes attended</div></div>'
-                  '<div>%s</div></div></div>'
-                  % (esc(s['code']), esc(s['name']), stt['p'], stt['t'], ring(pct_of(stt), 78, 8)))
+        pct = pct_of(stt)
+        cls, adv = skip_advice(stt['p'], stt['t'])
+        # last 12 records for this subject
+        recs = qall("SELECT date, status FROM attendance WHERE roll=? AND subject_id=? "
+                    "ORDER BY date DESC LIMIT 12", (st['roll'], s['id']))
+        det_rows = ''.join(
+            '<tr><td>%s</td><td>%s</td></tr>' % (fmt_date(r['date']), status_badge(r['status']))
+            for r in recs) or '<tr><td colspan="2" class="sub">No records yet.</td></tr>'
+        cards += (
+            '<div class="card"><div class="subj-head">'
+            '<div class="info"><div class="nm">%s</div>'
+            '<div class="code">%s · %d of %d classes attended · Absent: %d</div></div>'
+            '<div class="pct" style="color:%s">%.1f%%</div></div>'
+            '<div class="pbar"><div class="pbar-fill" style="width:%.1f%%;background:%s"></div></div>'
+            '<div class="adv %s">%s</div>'
+            '<details><summary>📋 Date-wise details</summary>'
+            '<table style="margin-top:8px"><tr><th>Date</th><th>Status</th></tr>%s</table></details>'
+            '</div>'
+            % (esc(s['name']), esc(s['code']), stt['p'], stt['t'], stt['a'],
+               pct_color(pct), pct, min(100, pct), pct_color(pct),
+               cls, adv, det_rows))
     today = today_str()
     todays = qall("SELECT a.status, s.name, s.code FROM attendance a JOIN subjects s ON s.id=a.subject_id "
                   "WHERE a.roll=? AND a.date=? ORDER BY s.code", (st['roll'], today))
@@ -584,7 +624,7 @@ def page_student_dash(st, msg=''):
     else:
         trows = '<tr><td colspan="3" class="sub">No classes marked today yet.</td></tr>'
     # self-mark open?
-    sm_rows2 = qall("SELECT sm.id sid, sm.subject_id, s.name, s.code, sm.open_until FROM selfmark sm "
+    sm_rows2 = qall("SELECT sm.subject_id, s.name, s.code, sm.open_until FROM selfmark sm "
                     "JOIN subjects s ON s.id=sm.subject_id "
                     "WHERE sm.enabled=1 AND sm.date=? AND s.branch=? AND s.year=? "
                     "AND (s.section='' OR s.section=?)", (today, st['branch'], st['year'], st['section']))
@@ -606,18 +646,19 @@ def page_student_dash(st, msg=''):
         sm_html = ''
     ovp = pct_of(overall)
     body = ('<div class="banner"><img src="/static/logo.png" alt="logo">'
-            '<div><div class="big">Welcome, %s 👋</div>'
-            '<div class="small">%s · %s · %s %s · Roll No: <b>%s</b></div></div>'
-            '<div class="spacer"></div><div style="text-align:center">%s</div></div>'
-            % (esc(st['name']), esc(COLLEGE_SHORT), year_label(st['year']), esc(BRANCHES.get(st['branch'], st['branch'])),
-               'Section ' + esc(st['section']), esc(st['roll']),
+            '<div><div class="big">%s</div>'
+            '<div class="small">Roll Number: <b>%s</b> &nbsp;·&nbsp; %s %s &nbsp;·&nbsp; %s &nbsp;·&nbsp; Section %s</div></div>'
+            '<div class="spacer"></div><div style="text-align:center"><div class="sub" style="color:#c9d6ec">Overall</div>%s</div></div>'
+            % (esc(st['name']), esc(st['roll']), year_label(st['year']),
+               esc(BRANCHES.get(st['branch'], st['branch'])),
+               esc(COLLEGE_SHORT), esc(st['section']),
                ring(ovp, 100, 10).replace('#17305c', '#ffffff')))
     if q1("SELECT password FROM students WHERE roll=?", (st['roll'],))['password'] == sha(st['roll']):
         body += ('<div class="notice">🔐 Your password is still your <b>Roll Number</b> (default). '
                  '<a href="/student/password"><b>Change it now</b></a> for safety.</div>')
     if st['name'].startswith('Student ') or not st['dob']:
-        body += ('<div class="notice">👤 Mee details update cheyandi — <a href="/student/profile">'
-                 '<b>My Profile</b></a> lo name + DOB set cheste, DOB tho kuda login cheyachu.</div>')
+        body += ('<div class="notice">👤 Please update your details — <a href="/student/profile">'
+                 '<b>My Profile</b></a> — set your Name and DOB to enable DOB login.</div>')
     if msg:
         body += '<div class="ok">%s</div>' % esc(msg)
     body += sm_html
@@ -629,25 +670,30 @@ def page_student_dash(st, msg=''):
         sync_info = ('<div class="sub" style="margin-top:8px">Last sync: <b>%s</b> %s</div>'
                      % (esc(last_sync['at']), ok_badge))
     body += ('<div class="card" style="margin-bottom:16px"><h3><span class="bar"></span>🔄 Official Portal Sync</h3>'
-             '<p class="sub">Mee official portal (jntuaceastudents.classattendance.in) attendance ni '
-             'ikkada sync chesukondi — mee official account tho login ayyi data techukuntundi.</p>'
+             '<p class="sub">Sync your official portal (jntuaceastudents.classattendance.in) attendance '
+             'here — it logs into your official account and fetches your data.</p>'
              '<div class="btn-row"><a class="btn green" href="/student/sync">🔄 Sync Now</a></div>'
              '%s</div>' % sync_info)
-    body += ('<div class="grid g2" style="margin-bottom:16px">'
-             '<div class="card"><h3><span class="bar"></span>Overall Attendance</h3>'
-             '<div class="grid g2"><div class="stat"><div class="num" style="color:%s">%.1f%%</div>'
-             '<div class="lbl">Percentage</div></div>'
-             '<div class="stat"><div class="num">%d</div><div class="lbl">Classes Attended</div></div>'
-             '<div class="stat"><div class="num">%d</div><div class="lbl">Absent</div></div>'
-             '<div class="stat"><div class="num">%d</div><div class="lbl">Total Classes</div></div></div></div>'
-             '<div class="card"><h3><span class="bar"></span>Today (%s)</h3><table><tr>'
-             '<th>Code</th><th>Subject</th><th>Status</th></tr>%s</table></div></div>'
-             % (pct_color(ovp), ovp, overall['p'], overall['a'], overall['t'],
-                fmt_date(today), trows))
+    body += ('<div class="grid g4" style="margin-bottom:16px">'
+             '<div class="card stat"><div class="num" style="color:%s">%.1f%%</div><div class="lbl">Overall Attendance</div></div>'
+             '<div class="card stat"><div class="num">%d</div><div class="lbl">Total Classes</div></div>'
+             '<div class="card stat"><div class="num" style="color:var(--green)">%d</div><div class="lbl">Present</div></div>'
+             '<div class="card stat"><div class="num" style="color:var(--red)">%d</div><div class="lbl">Absent</div></div></div>'
+             % (pct_color(ovp), ovp, overall['t'], overall['p'], overall['a']))
     body += ('<div class="card" style="margin-bottom:16px"><h3><span class="bar"></span>Subject-wise Attendance</h3>'
-             '<div class="grid g2">%s</div></div>' % cards)
-    body += ('<div class="btn-row"><a class="btn outline" href="/student/history">📅 View Full History</a>'
-             '<a class="btn outline" href="/student/history?print=1">🖨 Print / Save Report</a></div>')
+             '<div class="grid">%s</div></div>' % cards)
+    body += ('<div class="grid g2" style="margin-bottom:16px">'
+             '<div class="card"><h3><span class="bar"></span>Today (%s)</h3><table><tr>'
+             '<th>Code</th><th>Subject</th><th>Status</th></tr>%s</table></div>'
+             '<div class="card"><h3><span class="bar"></span>Quick Links</h3>'
+             '<div class="btn-row"><a class="btn outline" href="/student/history">📅 Full History</a>'
+             '<a class="btn outline" href="/student/history?print=1">🖨 Print Report</a>'
+             '<a class="btn outline" href="/student/profile">👤 My Profile</a>'
+             '<a class="btn outline" href="/student/password">🔐 Change Password</a></div>'
+             '<p class="sub" style="margin-top:12px">💡 <b>75%% rule:</b> you need at least 75%% attendance '
+             'in each subject to be eligible for exams. Each subject card shows exactly how many classes '
+             'you can skip or must attend.</p></div></div>'
+             % (fmt_date(today), trows))
     return page('Dashboard', topbar(student=st) + body, student=st)
 
 
@@ -712,11 +758,11 @@ def page_student_sync(st, msg='', err=''):
                      % (esc(last['at']), state, esc(last['message'])))
     body += ('<div class="card" style="max-width:560px"><h3><span class="bar"></span>🔄 Sync from Official Portal</h3>'
              '<p class="sub" style="margin-bottom:12px">'
-             'Mee official portal (jntuaceastudents.classattendance.in) login details enter cheyandi. '
-             'Mana app mee official account ki login ayyi, <b>mee attendance data</b> ni techi, '
-             'dashboard lo chupistundi.</p>'
-             '<div class="notice">🔒 Mee password <b>okkasari matrame</b> use avthundi — '
-             'save cheyyamu, store cheyyamu.</div>'
+            'Enter your official portal (jntuaceastudents.classattendance.in) login details. '
+            'We log into your official account, fetch your attendance data and show it '
+            'on your dashboard.</p>'
+            '<div class="notice">🔒 Your password is used <b>only once</b> — '
+            'never saved or stored.</div>'
              '<form class="form" method="post" action="/student/sync">'
              '<div><label>Roll Number</label><input value="%s" disabled></div>'
              '<div><label>Official Portal Password</label>'
@@ -728,11 +774,12 @@ def page_student_sync(st, msg='', err=''):
              % (esc(st['roll']), last_html))
     body += ('<div class="card" style="max-width:560px;margin-top:16px"><h3><span class="bar"></span>ℹ Notes</h3>'
              '<ul class="sub" style="padding-left:18px;display:grid;gap:6px">'
-             '<li>Sync mee <b>own</b> attendance matrame chupistundi (andari data kaadu).</li>'
-             '<li>Sync aina data mana app lo <b>Official</b> source ga save avthundi — '
-             'mana app lo admin mark chesina data tho kalipi % calculate avthundi.</li>'
-             '<li>Portal protection change aite sync fail avvachu — appudu Import Data tab use cheyandi.</li>'
-             '<li>30 minutes ki okasari matrame sync cheyachu (portal ni gentle ga handle cheyadaniki).</li></ul></div>')
+             '<li>Sync shows <b>your own</b> attendance only (not everyone\'s data).</li>'
+             '<li>Synced data is stored in our app as <b>Official</b> source — combined with '
+             'admin-marked data for percentage calculation.</li>'
+             '<li>If the portal changes its protection, sync may fail — use the admin '
+             'Import Data option instead.</li>'
+             '<li>You can sync only once every 30 minutes (to be gentle with the portal).</li></ul></div>')
     return page('Sync', topbar(student=st) + body, student=st)
 
 
@@ -1001,28 +1048,31 @@ def page_admin_import(msg='', err=''):
     if err:
         body += '<div class="err">%s</div>' % esc(err)
     body += ('<div class="card" style="margin-bottom:16px"><h3><span class="bar"></span>📥 Import Students (same as official portal list)</h3>'
-             '<p class="sub" style="margin-bottom:10px">Official college list nunchi students ni exact ga import cheyandi. '
-             '<b>Header line ok — automatic ga detect avthundi.</b> Columns (any order, header names flexible): '
+             '<p class="sub" style="margin-bottom:10px">Import students exactly from the official college list. '
+             '<b>Header line is fine — it is detected automatically.</b> Columns (any order, header names flexible): '
              '<code>roll</code>, <code>name</code>, <code>branch</code> (CSE/ECE/EEE/ME/CE), <code>year</code> (1-4), '
              '<code>section</code> (A/B), <code>dob</code> (optional). Default password = Roll Number or DOB.</p>'
              '<form class="form" method="post" action="/admin/students/bulk">'
              '<textarea name="csv" rows="8" placeholder="Roll No,Name,Branch,Year,Section,DOB&#10;22A51A0501,Abhishek Reddy,CSE,2,A,01-01-2003&#10;22A51A0502,Akhila S,CSE,2,A,14-08-2004"></textarea>'
              '<div><button class="btn gold">⬆ Import Students</button></div></form></div>')
     body += ('<div class="card"><h3><span class="bar"></span>📥 Import Attendance (same as official portal record)</h3>'
-             '<p class="sub" style="margin-bottom:10px">Official portal nunchi export ayyina attendance data ni paste cheyandi. '
+             '<p class="sub" style="margin-bottom:10px">Paste attendance data exported from the official portal. '
              '<b>Header line ok.</b> Columns (any order): <code>roll</code>, <code>subject</code> (code or name), '
              '<code>date</code>, <code>status</code> (P/A/Present/Absent/1/0). '
-             'Already unna records update avthayi (overwrite kaadu — latest value save).</p>'
+             'Existing records are updated (not duplicated — latest value is saved).</p>'
              '<form class="form" method="post" action="/admin/attendance/import">'
              '<textarea name="csv" rows="8" placeholder="roll,subject,date,status&#10;22A51A0501,19A05402,18-08-2026,P&#10;22A51A0502,19A05402,18-08-2026,A"></textarea>'
-             '<div class="small-note">💡 Excel/Sheets lo unte: attendance data copy chesi ikkada paste cheyandi. '
-             'Official portal lo attendance export ledu ante, college office nunchi list techukondi.</div>'
+             '<div class="small-note">💡 If you have the data in Excel/Sheets: copy the attendance data and paste it here. '
+             'If the official portal has no export, get the list from the college office.</div>'
              '<div><button class="btn green">⬆ Import Attendance</button></div></form></div>')
-    body += ('<div class="card" style="margin-top:16px"><h3><span class="bar"></span>ℹ Official Portal Data Ela Techukovali?</h3>'
+    body += ('<div class="card" style="margin-top:16px"><h3><span class="bar"></span>ℹ How to get Official Portal data?</h3>'
              '<ol class="sub" style="padding-left:18px;display:grid;gap:6px">'
-             '<li><b>College office / exam cell</b> ni adugutharu: students list (roll + name + DOB) and attendance registers — vaallu Excel lo istaru.</li>'
-             '<li>Mee college ki <b>classattendance.in admin access</b> unte, aa portal lo kuda reports/export option untundi — adi use cheyachu.</li>'
-             '<li>Ikkada import chesthe, mana app lo <b>same students, same DOB login, same attendance %</b> kanipistundi.</li></ol></div>')
+             '<li>Ask the <b>college office / exam cell</b> for the students list (roll + name + DOB) '
+             'and attendance registers — they usually provide them in Excel.</li>'
+             '<li>If your college has <b>classattendance.in admin access</b>, that portal also has a '
+             'reports/export option — you can use it.</li>'
+             '<li>After importing here, our app shows the <b>same students, same DOB login, '
+             'same attendance %</b>.</li></ol></div>')
     return page('Import Data', topbar(admin=True) + body, admin='on')
 
 
@@ -1250,8 +1300,8 @@ class App(BaseHTTPRequestHandler):
                 return self.send(303, '', extra_headers=[('Location', '/student')]
                                  + self.set_cookie(tok)
                                  + [('Set-Cookie', 'flash=%s; Path=/; Max-Age=8; HttpOnly'
-                                     % quote('Account auto-create ayyindi ✅ Mee details (name + DOB) '
-                                             'Profile page lo update cheyandi.'))])
+                                     % quote('Account auto-created successfully ✅ Please update your '
+                                             'Name and DOB on the My Profile page.'))])
             # ---- Friend-app mode: direct official portal login (roll + official password)
             odata = None
             perr = ''
@@ -1277,7 +1327,7 @@ class App(BaseHTTPRequestHandler):
                      '%d subjects, %d records synced' % (subs, recs)))
                 tok = self.new_session('student', roll)
                 flash_h = ('Set-Cookie', 'flash=%s; Path=/; Max-Age=8; HttpOnly'
-                           % quote('Official portal tho login ayyindi — %d subjects, %d records sync ayyayi ✅'
+                           % quote('Logged in via official portal — %d subjects, %d records synced ✅'
                                    % (subs, recs)))
                 return self.send(303, '', extra_headers=[('Location', '/student')]
                                  + self.set_cookie(tok) + [flash_h])
@@ -1286,8 +1336,8 @@ class App(BaseHTTPRequestHandler):
                 if perr:
                     msg += ' Official portal check: %s' % perr
                 return self.send(200, page_login(err=msg))
-            msg = ('Roll number not found. Roll Number + Roll Number tho login cheyandi — '
-                   'account auto create avthundi ✅ (leka admin tho account add cheyinchandi).')
+            msg = ('Roll number not found. Log in with Roll Number + Roll Number — '
+                   'your account will be created automatically ✅ (or ask the admin to add your account).')
             if perr:
                 msg += ' Official portal check: %s' % perr
             return self.send(200, page_login(err=msg))
@@ -1355,8 +1405,8 @@ class App(BaseHTTPRequestHandler):
                         last_dt = datetime.fromisoformat(last_ok['at'])
                         if (now_ist() - last_dt).total_seconds() < 30 * 60:
                             return self.send(200, page_student_sync(
-                                st, err='Recently sync ayyindi (%s). 30 minutes ayyaka malli cheyandi — '
-                                        'official portal ni gentle ga handle chestunnam.' % esc(last_ok['at'])))
+                                st, err='Synced recently (%s). Please wait 30 minutes before syncing again — '
+                                        'we handle the official portal gently.' % esc(last_ok['at'])))
                     except Exception:
                         pass
                 try:
@@ -1383,7 +1433,7 @@ class App(BaseHTTPRequestHandler):
                      '%d subjects, %d records synced' % (total_subs, total_recs)))
                 self.send(303, '', extra_headers=[('Location', '/student'),
                                                   ('Set-Cookie', 'flash=%s; Path=/; Max-Age=6; HttpOnly'
-                                                   % quote('Official portal nunchi sync ayyindi: %d subjects, %d records ✅'
+                                                   % quote('Synced from official portal: %d subjects, %d records ✅'
                                                            % (total_subs, total_recs)))])
                 return
             return self.redir('/student')

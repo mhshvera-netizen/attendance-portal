@@ -118,9 +118,9 @@ def _login(username, password):
     # server-side login cannot pass it. Don't even bother POSTing.
     if 'cf-turnstile' in response.text:
         raise PortalError(
-            'Official portal ippudu Cloudflare Turnstile CAPTCHA (human bot-check) '
-            'vaduthundi — automatic sync temporarily blocked. '
-            'Local login use cheyandi (roll + roll number), or ask admin to use '
+            'Official portal is now using Cloudflare Turnstile CAPTCHA (human bot-check) — '
+            'automatic sync is temporarily blocked. '
+            'Use local login (roll + roll number), or ask the admin to use '
             'Import Data for official records.')
     html_content = response.text
 
