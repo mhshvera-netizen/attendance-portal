@@ -25,7 +25,33 @@ APK_B64 = '''UEsDBAAAAAAIAAAAIQB5GvrMXAMAADQJAAATAAAAQW5kcm9pZE1hbmlmZXN0LnhtbJV
 
 app = Flask(__name__)
 
-APK_FILENAME = 'JNTUA-Attendance-Application.apk'
+PORTAL_MAIN = 'https://jntuaceastudents.classattendance.in/'
+_STATUS = {'t': 0.0, 'open': False, 'captcha': False}
+
+
+def _portal_status():
+    import time as _t
+    now = _t.time()
+    if now - _STATUS['t'] < 20:
+        return _STATUS['open'], _STATUS['captcha']
+    try:
+        import requests as _rq
+        r = _rq.get(PORTAL_MAIN, timeout=10, headers={
+            'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                           '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'),
+            'Accept': 'text/html'})
+        txt = r.text or ''
+        _STATUS['open'] = (r.status_code == 200 and 'loginForm' in txt
+                           and 'cf-turnstile' not in txt)
+        _STATUS['captcha'] = ('cf-turnstile' in txt)
+    except Exception:
+        _STATUS['open'] = False
+        _STATUS['captcha'] = False
+    _STATUS['t'] = now
+    return _STATUS['open'], _STATUS['captcha']
+
+
+APK_FILENAME = 'JNTUA-Attendance-Application.apk' 
 
 MANIFEST_JSON = _json.dumps({
     "name": "JNTUACEA Attendance",
@@ -147,6 +173,12 @@ def sw():
     return Response(SW_JS, mimetype='application/javascript')
 
 
+@app.route('/app/status')
+def app_status():
+    o, c = _portal_status()
+    return Response(_json.dumps({'open': o, 'captcha': c}), mimetype='application/json')
+
+
 @app.route('/app/sync', methods=['POST'])
 def app_sync():
     u = (request.form.get('username') or '').strip().upper()
@@ -191,6 +223,9 @@ def index(path):
                         mimetype='application/vnd.android.package-archive',
                         headers={'Content-Disposition':
                                  'attachment; filename="JNTUACEA-Attendance.apk"'})
+    if 'status' in p:
+        o, c = _portal_status()
+        return Response(_json.dumps({'open': o, 'captcha': c}), mimetype='application/json')
     if request.method == 'POST' and 'sync' in p:
         u = (request.form.get('username') or '').strip().upper()
         pw = (request.form.get('password') or '').strip()

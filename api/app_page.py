@@ -104,11 +104,16 @@ margin-bottom:8px;cursor:pointer}
       <label>PASSWORD</label>
       <input id="syncPass" type="password" placeholder="Your college portal password">
       <button class="btn" id="syncBtn" onclick="doSync()">Check Attendance &rarr;</button>
+      <button class="btn" id="autoBtn" onclick="toggleAutoWait()"
+        style="background:#64748b;margin-top:8px">&#128276; Wait &amp; Auto-Sync when portal opens</button>
       <div class="msg" id="syncMsg"></div>
+      <div class="msg" id="autoMsg" style="display:block;background:#EEF1F6;color:#66748f;
+        border:1px solid #DFE4EC;margin-top:8px">Portal status: checking&hellip;</div>
       <p style="font-size:11.5px;color:var(--muted);margin-top:10px">
         We log into the official college portal with your credentials.
         Your password is never stored. If the portal is showing its CAPTCHA,
-        use Quick Entry instead.</p>
+        tap <b>Wait &amp; Auto-Sync</b> &mdash; it checks every 45 seconds and syncs
+        automatically the moment the portal opens. Or use Quick Entry.</p>
     </div>
   </div>
 
@@ -221,6 +226,10 @@ function doSync(){
   var roll = document.getElementById('syncRoll').value.trim().toUpperCase();
   var pass = document.getElementById('syncPass').value;
   if (roll.length < 5 || !pass){ msg('syncMsg','err','Please enter username and password.'); return; }
+  doSyncNow(roll, pass);
+}
+
+function doSyncNow(roll, pass){
   var btn = document.getElementById('syncBtn');
   btn.disabled = true; btn.textContent = 'Loading\u2026';
   msg('syncMsg','ok','Syncing with the official portal \u2014 this can take up to a minute\u2026');
@@ -331,6 +340,66 @@ try {
   document.getElementById('entrySubs').value = localStorage.getItem('jnt_subs')||'';
 } catch(e){}
 
+var AUTO = {on:false, timer:null};
+
+function setAutoMsg(t){
+  var m = document.getElementById('autoMsg');
+  m.textContent = t;
+  m.style.display = 'block';
+}
+
+function checkStatus(cb){
+  fetch('/app/status').then(function(r){ return r.json(); }).then(function(d){
+    var now = new Date().toLocaleTimeString();
+    if (d.open){
+      setAutoMsg('\uD83D\uDFE2 Portal is OPEN (no CAPTCHA) \u2014 checked ' + now);
+    } else if (d.captcha){
+      setAutoMsg('\uD83D\uDD34 Portal CAPTCHA is ON \u2014 checked ' + now
+        + (AUTO.on ? ' \u00B7 waiting for it to open\u2026' : ''));
+    } else {
+      setAutoMsg('\u26AA Could not reach the portal \u2014 checked ' + now);
+    }
+    if (cb) cb(d);
+  }).catch(function(){
+    setAutoMsg('\u26AA Could not reach the portal.');
+    if (cb) cb({open:false});
+  });
+}
+
+function toggleAutoWait(){
+  var btn = document.getElementById('autoBtn');
+  if (AUTO.on){
+    AUTO.on = false;
+    if (AUTO.timer) clearInterval(AUTO.timer);
+    btn.textContent = '\uD83D\uDD14 Wait & Auto-Sync when portal opens';
+    setAutoMsg('Auto-wait stopped.');
+    return;
+  }
+  var roll = document.getElementById('syncRoll').value.trim().toUpperCase();
+  var pass = document.getElementById('syncPass').value;
+  if (roll.length < 5 || !pass){
+    msg('syncMsg','err','Enter username + password first, then tap Wait & Auto-Sync.');
+    return;
+  }
+  AUTO.on = true;
+  btn.textContent = '\u23F9 Stop waiting';
+  setAutoMsg('Waiting for the portal CAPTCHA to turn off\u2026 checking every 45 seconds.');
+  var fire = function(d){
+    if (d.open && AUTO.on){
+      AUTO.on = false;
+      if (AUTO.timer) clearInterval(AUTO.timer);
+      btn.textContent = '\uD83D\uDD14 Wait & Auto-Sync when portal opens';
+      doSyncNow(roll, pass);
+      return true;
+    }
+    return false;
+  };
+  checkStatus(fire);
+  AUTO.timer = setInterval(function(){ checkStatus(fire); }, 45000);
+}
+
+checkStatus();
+
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(function(){});
 }
@@ -356,8 +425,9 @@ def app_sync_json(username, password):
     except Exception as e:
         msg = str(e)
         if 'CAPTCHA' in msg or 'Use https' in msg or 'verification' in msg:
-            return {'error': 'The official portal is showing its human verification '
-                             'right now. Use Quick Entry (2 minutes) instead.'}
+            return {'error': 'The official portal CAPTCHA is ON right now. '
+                             'Tap \u201cWait & Auto-Sync\u201d \u2014 it syncs automatically '
+                             'the moment the portal opens. Or use Quick Entry (always works).'}
         if 'rejected' in msg.lower() or 'credential' in msg.lower():
             return {'error': 'Login failed: ' + msg[:160]}
         return {'error': 'Could not connect to the official portal. Try again in a minute.'}
