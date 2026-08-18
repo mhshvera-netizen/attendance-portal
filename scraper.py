@@ -279,11 +279,16 @@ def _parse_class(cls):
 
 
 def official_fetch(username, password, max_subjects=25, polite_delay=0.4):
-    """Full sync for one student. Returns:
+    """Full sync for one student (server-side login — used when the portal
+    has no CAPTCHA). Returns:
     {'name': str, 'branch': str, 'year': int,
      'subjects': [{'subject': name, 'records': [{'date','status'}...]}...]}
     Raises PortalError with a friendly message on any failure."""
     session = _login(username, password)
+    return _fetch_with_session(session, username, max_subjects, polite_delay)
+
+
+def _fetch_with_session(session, fallback_name, max_subjects, polite_delay):
     info = _student_details(session)
     name = ''
     for k, v in info.items():
@@ -291,7 +296,7 @@ def official_fetch(username, password, max_subjects=25, polite_delay=0.4):
             name = v.strip()
             break
     if not name:
-        name = username
+        name = fallback_name
     cls = info.get('Class') or info.get('Class Name') or ''
     branch, year = _parse_class(cls)
     subs = _subjects(session, info)
@@ -305,6 +310,13 @@ def official_fetch(username, password, max_subjects=25, polite_delay=0.4):
             out.append({'subject': s.get('sub_fullname', 'Unknown Subject'), 'records': []})
         time.sleep(polite_delay)  # be gentle with the portal
     return {'name': name, 'branch': branch, 'year': year, 'subjects': out}
+
+
+def official_fetch_session(session, fallback_name='', max_subjects=25, polite_delay=0.4):
+    """Fetch attendance using an ALREADY authenticated session (bridge flow —
+    the student logged in themselves in their own browser, so the CAPTCHA
+    was solved by a real human). Uses the session's cookies only."""
+    return _fetch_with_session(session, fallback_name, max_subjects, polite_delay)
 
 
 def _stub_fetch(username, password, max_subjects=12, polite_delay=0.1):

@@ -42,6 +42,9 @@ BRANCHES = {
 }
 BRANCH_CODE = {'CE': '01', 'EEE': '02', 'ME': '03', 'ECE': '04', 'CSE': '05'}
 YEAR_ROMAN = {1: 'I', 2: 'II', 3: 'III', 4: 'IV'}
+PORTAL_URL = 'https://jntuaceastudents.classattendance.in'
+BRIDGE_UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+             '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
 
 
 # ---------------------------------------------------------------- database --
@@ -154,6 +157,8 @@ def db_init():
     CREATE TABLE IF NOT EXISTS sync_log(
       id INTEGER PRIMARY KEY AUTOINCREMENT, roll TEXT NOT NULL,
       at TEXT NOT NULL, ok INTEGER DEFAULT 0, message TEXT DEFAULT '');
+    CREATE TABLE IF NOT EXISTS bridge_cookies(
+      token TEXT PRIMARY KEY, cookies TEXT NOT NULL, updated_at TEXT DEFAULT '');
     """)
     if not con.execute("SELECT 1 FROM settings WHERE key='admin_pass'").fetchone():
         con.execute("INSERT INTO settings(key,value) VALUES('admin_pass', ?)", (sha('admin123'),))
@@ -669,10 +674,11 @@ def page_student_dash(st, msg=''):
         ok_badge = '<span class="badge b-p">OK</span>' if last_sync['ok'] else '<span class="badge b-a">Failed</span>'
         sync_info = ('<div class="sub" style="margin-top:8px">Last sync: <b>%s</b> %s</div>'
                      % (esc(last_sync['at']), ok_badge))
-    body += ('<div class="card" style="margin-bottom:16px"><h3><span class="bar"></span>🔄 Official Portal Sync</h3>'
-             '<p class="sub">Sync your official portal (jntuaceastudents.classattendance.in) attendance '
-             'here — it logs into your official account and fetches your data.</p>'
-             '<div class="btn-row"><a class="btn green" href="/student/sync">🔄 Sync Now</a></div>'
+    body += ('<div class="card" style="margin-bottom:16px"><h3><span class="bar"></span>🔗 Official Portal Sync</h3>'
+             '<p class="sub">Bring your real attendance from the official portal '
+             '(jntuaceastudents.classattendance.in). You log in yourself once (CAPTCHA is normal) '
+             'and we pull your data — overall %% and subject-wise %%.</p>'
+             '<div class="btn-row"><a class="btn green" href="/student/sync">🔗 Sync from Official Portal</a></div>'
              '%s</div>' % sync_info)
     body += ('<div class="grid g4" style="margin-bottom:16px">'
              '<div class="card stat"><div class="num" style="color:%s">%.1f%%</div><div class="lbl">Overall Attendance</div></div>'
@@ -756,30 +762,28 @@ def page_student_sync(st, msg='', err=''):
         state = '<span class="badge b-p">Success</span>' if last['ok'] else '<span class="badge b-a">Failed</span>'
         last_html = ('<div class="sub" style="margin-top:10px">Last sync: <b>%s</b> %s — %s</div>'
                      % (esc(last['at']), state, esc(last['message'])))
-    body += ('<div class="card" style="max-width:560px"><h3><span class="bar"></span>🔄 Sync from Official Portal</h3>'
-             '<p class="sub" style="margin-bottom:12px">'
-            'Enter your official portal (jntuaceastudents.classattendance.in) login details. '
-            'We log into your official account, fetch your attendance data and show it '
-            'on your dashboard.</p>'
-            '<div class="notice">🔒 Your password is used <b>only once</b> — '
-            'never saved or stored.</div>'
-             '<form class="form" method="post" action="/student/sync">'
-             '<div><label>Roll Number</label><input value="%s" disabled></div>'
-             '<div><label>Official Portal Password</label>'
-             '<div class="passwrap"><input type="password" name="password" id="pw" required '
-             'placeholder="Official portal password" autocomplete="off">'
-             '<button type="button" class="eye" onclick="togglePw()">👁</button></div></div>'
-             '<div class="btn-row"><button class="btn green">🔄 Sync Now</button></div></form>'
+    body += ('<div class="card" style="max-width:620px"><h3><span class="bar"></span>🔗 Sync from Official Portal</h3>'
+             '<p class="sub" style="margin-bottom:12px">The official portal now shows a CAPTCHA to stop '
+             'automated logins — so you complete the login yourself, exactly like you always do. '
+             'Your password goes only to the official portal and is never stored by us.</p>'
+             '<div class="notice"><b>Step 1:</b> Open the official portal below and log in '
+             '(solve the CAPTCHA normally). <b>Step 2:</b> Come back here and click '
+             '<b>Pull My Attendance</b>.</div>'
+             '<div class="btn-row" style="margin-bottom:12px">'
+             '<a class="btn" href="/bridge" target="_blank" rel="noopener">1️⃣ Open Official Portal</a>'
+             '<form method="post" action="/student/pull" style="display:inline">'
+             '<button class="btn green">2️⃣ Pull My Attendance</button></form></div>'
+             '<div class="small-note">After pulling, your overall %% and subject-wise %% appear on your '
+             'Dashboard. You can pull again anytime to refresh.</div>'
              '%s</div>'
-             % (esc(st['roll']), last_html))
-    body += ('<div class="card" style="max-width:560px;margin-top:16px"><h3><span class="bar"></span>ℹ Notes</h3>'
+             % last_html)
+    body += ('<div class="card" style="max-width:620px;margin-top:16px"><h3><span class="bar"></span>ℹ Notes</h3>'
              '<ul class="sub" style="padding-left:18px;display:grid;gap:6px">'
              '<li>Sync shows <b>your own</b> attendance only (not everyone\'s data).</li>'
-             '<li>Synced data is stored in our app as <b>Official</b> source — combined with '
-             'admin-marked data for percentage calculation.</li>'
-             '<li>If the portal changes its protection, sync may fail — use the admin '
-             'Import Data option instead.</li>'
-             '<li>You can sync only once every 30 minutes (to be gentle with the portal).</li></ul></div>')
+             '<li>Pulled data is stored here as <b>Official</b> source — your % is calculated from it.</li>'
+             '<li>The official portal session stays valid for a while — to refresh later, just '
+             'open the portal again and pull.</li>'
+             '<li>If pulling fails, open the official portal once more (Step 1) and try again.</li></ul></div>')
     return page('Sync', topbar(student=st) + body, student=st)
 
 
@@ -1171,6 +1175,98 @@ class App(BaseHTTPRequestHandler):
     def set_cookie(self, tok):
         return [('Set-Cookie', 'sid=%s; Path=/; HttpOnly; SameSite=Lax' % tok)]
 
+    # ----- bridge: reverse-proxy the official portal through our app.
+    # The student opens the official login page on OUR domain and logs in
+    # THEMSELVES — so the CAPTCHA is solved by a real human in a real
+    # browser. After login, our server uses their session cookies to read
+    # their attendance (no CAPTCHA is needed after login).
+    def bridge(self, method):
+        try:
+            import requests as _rq
+        except ImportError:
+            return self.send(502, 'Bridge engine not installed. Run: pip install -r requirements.txt', 'text/html')
+        parsed = urlparse(self.path)
+        rel = parsed.path[len('/bridge'):]
+        if not rel:
+            rel = '/'
+        target = PORTAL_URL + rel + ('?' + parsed.query if parsed.query else '')
+        hdrs = {}
+        incoming_cookie = ''
+        for k, v in self.headers.items():
+            lk = k.lower()
+            if lk in ('host', 'content-length', 'connection', 'accept-encoding',
+                      'transfer-encoding', 'upgrade-insecure-requests', 'sec-fetch-dest'):
+                continue
+            if lk == 'cookie':
+                incoming_cookie = v
+                parts = [p.strip() for p in v.split(';')]
+                parts = [p for p in parts if p and not p.lower().startswith(('sid=', 'flash='))]
+                if parts:
+                    hdrs['Cookie'] = '; '.join(parts)
+                continue
+            if lk == 'referer':
+                our_host = self.headers.get('Host', '')
+                if our_host:
+                    v = re.sub(r'https?://' + re.escape(our_host), PORTAL_URL, v, flags=re.I)
+                hdrs[k] = v
+                continue
+            if lk == 'origin':
+                hdrs[k] = PORTAL_URL
+                continue
+            hdrs[k] = v
+        hdrs['Host'] = urlparse(PORTAL_URL).netloc
+        ua = hdrs.get('User-Agent', '')
+        if not ua or 'curl' in ua.lower() or 'python' in ua.lower():
+            hdrs['User-Agent'] = BRIDGE_UA
+        hdrs['Accept-Encoding'] = 'identity'
+        body = None
+        if method == 'POST':
+            ln = int(self.headers.get('Content-Length') or 0)
+            body = self.rfile.read(ln)
+        try:
+            resp = _rq.request(method, target, headers=hdrs, data=body, timeout=40,
+                               allow_redirects=False)
+        except Exception as e:
+            return self.send(502, 'Official portal is unreachable right now (%s). '
+                                  'Please try again in a minute.' % esc(str(e)[:80]), 'text/html')
+        # remember the portal session cookies so we can pull attendance later
+        sess = self.session()
+        if sess and sess['role'] == 'student' and incoming_cookie:
+            run("INSERT INTO bridge_cookies(token,cookies,updated_at) VALUES(?,?,?) "
+                "ON CONFLICT(token) DO UPDATE SET cookies=excluded.cookies, updated_at=excluded.updated_at",
+                (sess['token'], incoming_cookie, now_ist().isoformat(timespec='seconds')))
+        out = []
+        ctype = resp.headers.get('Content-Type', 'text/html; charset=utf-8')
+        for k, v in resp.headers.items():
+            lk = k.lower()
+            if lk in ('content-length', 'connection', 'transfer-encoding',
+                      'content-encoding', 'keep-alive', 'alt-svc'):
+                continue
+            if lk == 'location':
+                v = re.sub(r'https?://[^/]*jntuaceastudents\.classattendance\.in',
+                           '/bridge', v, flags=re.I)
+            elif lk == 'set-cookie':
+                v = re.sub(r';\s*domain=[^;]*', '', v, flags=re.I)
+                v = re.sub(r';\s*secure', '', v, flags=re.I)
+            out.append((k, v))
+        content = resp.content
+        if 'html' in ctype.lower() or ctype.lower().startswith('text/'):
+            text = content.decode(resp.encoding or 'utf-8', 'replace')
+            text = re.sub(r'https?://jntuaceastudents\.classattendance\.in',
+                          '/bridge', text, flags=re.I)
+            banner = ('<div style="position:sticky;top:0;z-index:9999;background:#123a6b;'
+                      'color:#fff;padding:8px 14px;font:600 13px/1.5 Segoe UI,Arial,sans-serif">'
+                      '🔗 JNTUACEA Sync Bridge — this is the official portal. Log in here '
+                      '(the CAPTCHA is normal), then come back to the '
+                      '<a href="/student/sync" style="color:#ffd75e;font-weight:700">Sync tab</a> '
+                      'and click <b>Pull My Attendance</b>.</div>')
+            if '<body' in text:
+                text = re.sub(r'(<body[^>]*>)', lambda m: m.group(1) + banner, text, count=1)
+            else:
+                text = banner + text
+            content = text.encode('utf-8')
+        self.send(resp.status_code, content, ctype, extra_headers=out)
+
     def serve_static(self, path):
         fname = os.path.basename(path)
         full = os.path.join(BASE, 'static', fname)
@@ -1192,6 +1288,9 @@ class App(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path.startswith('/static/'):
             return self.serve_static(path)
+        # ---- bridge: official portal through our app (student solves CAPTCHA)
+        if path == '/bridge' or path.startswith('/bridge/'):
+            return self.bridge('GET')
         # ---- easy downloads (for phone setup)
         if path == '/download':
             return self.send(200, page('Downloads', topbar() + (
@@ -1274,6 +1373,9 @@ class App(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
+        # ---- bridge: official portal through our app (student solves CAPTCHA)
+        if path == '/bridge' or path.startswith('/bridge/'):
+            return self.bridge('POST')
         sess = self.session()
         f = self.post_fields()
         # ---- login
@@ -1393,6 +1495,51 @@ class App(BaseHTTPRequestHandler):
                     return self.send(200, page_student_password(st, err='Current password is incorrect.'))
                 run("UPDATE students SET password=? WHERE roll=?", (sha(new), st['roll']))
                 return self.send(200, page_student_password(st, msg='Password updated successfully!'))
+            if path == '/student/pull':
+                # Bridge flow: use the portal session the student created in
+                # their own browser (CAPTCHA solved by a real human there).
+                brow = q1("SELECT cookies FROM bridge_cookies WHERE token=?", (sess['token'],))
+                if not brow:
+                    return self.send(200, page_student_sync(
+                        st, err='No official portal session found. Do Step 1 first: '
+                                'open the official portal and log in there.'))
+                try:
+                    import requests as _rq
+                    import scraper
+                except Exception:
+                    return self.send(200, page_student_sync(st, err='Sync engine is not available on this server yet.'))
+                s2 = _rq.Session()
+                s2.headers.update({'User-Agent': scraper.UA,
+                                   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                                   'Accept-Language': 'en-US,en;q=0.9'})
+                keep = [p.strip() for p in brow['cookies'].split(';')
+                        if p.strip() and not p.strip().lower().startswith(('sid=', 'flash='))]
+                if not keep:
+                    return self.send(200, page_student_sync(
+                        st, err='Official portal session cookie missing. Do Step 1 again '
+                                '(open portal, log in), then pull.'))
+                s2.headers['Cookie'] = '; '.join(keep)
+                try:
+                    data = scraper.official_fetch_session(s2, fallback_name=st['roll'],
+                                                          max_subjects=15, polite_delay=0.2)
+                except scraper.PortalError as e:
+                    run("INSERT INTO sync_log(roll,at,ok,message) VALUES(?,?,0,?)",
+                        (st['roll'], now_ist().isoformat(timespec='seconds'), str(e)[:200]))
+                    return self.send(200, page_student_sync(st, err=str(e)))
+                except Exception as e:
+                    run("INSERT INTO sync_log(roll,at,ok,message) VALUES(?,?,0,?)",
+                        (st['roll'], now_ist().isoformat(timespec='seconds'),
+                         'Unexpected error: %s' % str(e)[:160]))
+                    return self.send(200, page_student_sync(st, err='Pull failed. Please open the portal again (Step 1) and try.'))
+                total_subs, total_recs = apply_official_sync(st['roll'], data)
+                run("INSERT INTO sync_log(roll,at,ok,message) VALUES(?,?,1,?)",
+                    (st['roll'], now_ist().isoformat(timespec='seconds'),
+                     '%d subjects, %d records pulled' % (total_subs, total_recs)))
+                self.send(303, '', extra_headers=[('Location', '/student'),
+                                                  ('Set-Cookie', 'flash=%s; Path=/; Max-Age=8; HttpOnly'
+                                                   % quote('Pulled from official portal: %d subjects, %d records ✅ '
+                                                           'Check your Dashboard.' % (total_subs, total_recs)))])
+                return
             if path == '/student/sync':
                 pw = self.field(f, 'password')
                 if not pw:
