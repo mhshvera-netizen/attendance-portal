@@ -28,8 +28,9 @@ import requests
 from bs4 import BeautifulSoup
 
 BASE_URLS = [
-    'https://ekr.classattendance.in/',
-    'https://jntuaceastudents.classattendance.in/',
+    'https://jntuacea.classattendance.in/',               # no CAPTCHA (likely same DB)
+    'https://ekr.classattendance.in/',                    # no CAPTCHA
+    'https://jntuaceastudents.classattendance.in/',       # may show CAPTCHA
 ]
 UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
