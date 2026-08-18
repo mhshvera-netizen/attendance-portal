@@ -159,6 +159,10 @@ def db_init():
       at TEXT NOT NULL, ok INTEGER DEFAULT 0, message TEXT DEFAULT '');
     CREATE TABLE IF NOT EXISTS bridge_cookies(
       token TEXT PRIMARY KEY, cookies TEXT NOT NULL, updated_at TEXT DEFAULT '');
+    CREATE TABLE IF NOT EXISTS att_summary(
+      roll TEXT NOT NULL, key TEXT NOT NULL, subject_name TEXT NOT NULL,
+      total INTEGER NOT NULL, present INTEGER NOT NULL, updated_at TEXT DEFAULT '',
+      PRIMARY KEY(roll, key));
     """)
     if not con.execute("SELECT 1 FROM settings WHERE key='admin_pass'").fetchone():
         con.execute("INSERT INTO settings(key,value) VALUES('admin_pass', ?)", (sha('admin123'),))
@@ -578,6 +582,49 @@ def page_login(err='', ok='', admin=False):
 
 
 # ------------------------------------------------------------ student pages --
+def norm_key(s):
+    return re.sub(r'[^a-z0-9]', '', (s or '').lower())
+
+
+def parse_summary_text(txt):
+    """Parse student-entered subject totals. Supported line formats:
+      'Operating Systems 36/40'
+      'Operating Systems total 40 present 36'
+      'Operating Systems 40 36'   (total then present)
+    Returns [{'name':..., 'total':int, 'present':int}]"""
+    rows = []
+    for line in (txt or '').splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        present = total = None
+        m = re.search(r'(\d{1,3})\s*/\s*(\d{1,3})', line)
+        if m:
+            present, total = int(m.group(1)), int(m.group(2))
+        else:
+            low = line.lower()
+            mt = re.search(r'total\s*[=:]?\s*(\d{1,3})', low)
+            mp = re.search(r'present\s*[=:]?\s*(\d{1,3})', low)
+            if mt and mp:
+                total, present = int(mt.group(1)), int(mp.group(1))
+            else:
+                nums = re.findall(r'\d{1,3}', line)
+                if len(nums) >= 2:
+                    total, present = int(nums[-2]), int(nums[-1])
+        if total is None or present is None:
+            continue
+        # clean the subject name: drop the numbers/keywords from the end
+        name = re.sub(r'\d{1,3}\s*/\s*\d{1,3}', ' ', line)
+        name = re.sub(r'(?i)total\s*[=:]?\s*\d{1,3}', ' ', name)
+        name = re.sub(r'(?i)present\s*[=:]?\s*\d{1,3}', ' ', name)
+        name = re.sub(r'\d{1,3}', ' ', name)
+        name = name.strip(' :;,-.|')
+        if not name or len(name) < 2 or not (1 <= present <= total <= 600):
+            continue
+        rows.append({'name': name.strip(), 'total': total, 'present': present})
+    return rows
+
+
 def skip_advice(p, t):
     """75% rule advice for a subject."""
     if t == 0:
@@ -595,30 +642,61 @@ def skip_advice(p, t):
 def page_student_dash(st, msg=''):
     subs = student_subs(st['roll'])
     overall = subject_stats(st['roll'])
+    summ = {r['key']: r for r in qall("SELECT * FROM att_summary WHERE roll=?", (st['roll'],))}
+
+    def subj_totals(s):
+        """Returns (present, total, source) — summary wins over records."""
+        row = summ.get(norm_key(s['name']))
+        if row:
+            return row['present'], row['total'], 'summary'
+        stt = subject_stats(st['roll'], s['id'])
+        return stt['p'], stt['t'], 'records'
+
     cards = ''
     for s in subs:
-        stt = subject_stats(st['roll'], s['id'])
-        pct = pct_of(stt)
-        cls, adv = skip_advice(stt['p'], stt['t'])
-        # last 12 records for this subject
-        recs = qall("SELECT date, status FROM attendance WHERE roll=? AND subject_id=? "
-                    "ORDER BY date DESC LIMIT 12", (st['roll'], s['id']))
-        det_rows = ''.join(
-            '<tr><td>%s</td><td>%s</td></tr>' % (fmt_date(r['date']), status_badge(r['status']))
-            for r in recs) or '<tr><td colspan="2" class="sub">No records yet.</td></tr>'
+        p, t, src = subj_totals(s)
+        pct = (p * 100.0 / t) if t else 0.0
+        cls, adv = skip_advice(p, t)
+        if src == 'summary':
+            src_tag = '<span class="badge b-p">Official portal</span>'
+            det_rows = ('<tr><td colspan="2" class="sub">Entered from the official portal '
+                        '(total %d, present %d).</td></tr>' % (t, p))
+        else:
+            src_tag = ''
+            recs = qall("SELECT date, status FROM attendance WHERE roll=? AND subject_id=? "
+                        "ORDER BY date DESC LIMIT 12", (st['roll'], s['id']))
+            det_rows = ''.join(
+                '<tr><td>%s</td><td>%s</td></tr>' % (fmt_date(r['date']), status_badge(r['status']))
+                for r in recs) or '<tr><td colspan="2" class="sub">No records yet.</td></tr>'
         cards += (
             '<div class="card"><div class="subj-head">'
-            '<div class="info"><div class="nm">%s</div>'
-            '<div class="code">%s · %d of %d classes attended · Absent: %d</div></div>'
+            '<div class="info"><div class="nm">%s %s</div>'
+            '<div class="code">%s · %d of %d classes · Absent: %d</div></div>'
             '<div class="pct" style="color:%s">%.1f%%</div></div>'
             '<div class="pbar"><div class="pbar-fill" style="width:%.1f%%;background:%s"></div></div>'
             '<div class="adv %s">%s</div>'
-            '<details><summary>📋 Date-wise details</summary>'
+            '<details><summary>📋 Details</summary>'
             '<table style="margin-top:8px"><tr><th>Date</th><th>Status</th></tr>%s</table></details>'
             '</div>'
-            % (esc(s['name']), esc(s['code']), stt['p'], stt['t'], stt['a'],
+            % (esc(s['name']), src_tag, esc(s['code']), p, t, max(0, t - p),
                pct_color(pct), pct, min(100, pct), pct_color(pct),
                cls, adv, det_rows))
+    # subjects the student entered that are not in our subject list
+    for key, row in summ.items():
+        if any(norm_key(s['name']) == key for s in subs):
+            continue
+        p, t = int(row['present']), int(row['total'])
+        pct = (p * 100.0 / t) if t else 0.0
+        cls, adv = skip_advice(p, t)
+        cards += (
+            '<div class="card"><div class="subj-head">'
+            '<div class="info"><div class="nm">%s <span class="badge b-p">Official portal</span></div>'
+            '<div class="code">%d of %d classes · Absent: %d</div></div>'
+            '<div class="pct" style="color:%s">%.1f%%</div></div>'
+            '<div class="pbar"><div class="pbar-fill" style="width:%.1f%%;background:%s"></div></div>'
+            '<div class="adv %s">%s</div></div>'
+            % (esc(row['subject_name']), p, t, max(0, t - p),
+               pct_color(pct), pct, min(100, pct), pct_color(pct), cls, adv))
     today = today_str()
     todays = qall("SELECT a.status, s.name, s.code FROM attendance a JOIN subjects s ON s.id=a.subject_id "
                   "WHERE a.roll=? AND a.date=? ORDER BY s.code", (st['roll'], today))
@@ -649,6 +727,16 @@ def page_student_dash(st, msg=''):
                         % (esc(sm['name']), esc(sm['code']), till, sm['subject_id']))
     if not sm_rows2:
         sm_html = ''
+    # combined overall: summaries + records of subjects not covered by a summary
+    if summ:
+        com_p = sum(int(r['present']) for r in summ.values())
+        com_t = sum(int(r['total']) for r in summ.values())
+        for s in subs:
+            if norm_key(s['name']) not in summ:
+                stt = subject_stats(st['roll'], s['id'])
+                com_p += stt['p']
+                com_t += stt['t']
+        overall = {'p': com_p, 't': com_t, 'a': max(0, com_t - com_p)}
     ovp = pct_of(overall)
     body = ('<div class="banner"><img src="/static/logo.png" alt="logo">'
             '<div><div class="big">%s</div>'
@@ -658,6 +746,10 @@ def page_student_dash(st, msg=''):
                esc(BRANCHES.get(st['branch'], st['branch'])),
                esc(COLLEGE_SHORT), esc(st['section']),
                ring(ovp, 100, 10).replace('#17305c', '#ffffff')))
+    if summ:
+        body += ('<div class="notice green">✅ Overall % is calculated from the totals you entered '
+                 'from the official portal. Update them anytime on the '
+                 '<a href="/student/sync"><b>Sync page</b></a>.</div>')
     if q1("SELECT password FROM students WHERE roll=?", (st['roll'],))['password'] == sha(st['roll']):
         body += ('<div class="notice">🔐 Your password is still your <b>Roll Number</b> (default). '
                  '<a href="/student/password"><b>Change it now</b></a> for safety.</div>')
@@ -762,28 +854,35 @@ def page_student_sync(st, msg='', err=''):
         state = '<span class="badge b-p">Success</span>' if last['ok'] else '<span class="badge b-a">Failed</span>'
         last_html = ('<div class="sub" style="margin-top:10px">Last sync: <b>%s</b> %s — %s</div>'
                      % (esc(last['at']), state, esc(last['message'])))
-    body += ('<div class="card" style="max-width:620px"><h3><span class="bar"></span>🔗 Sync from Official Portal</h3>'
-             '<p class="sub" style="margin-bottom:12px">The official portal now shows a CAPTCHA to stop '
-             'automated logins — so you complete the login yourself, exactly like you always do. '
-             'Your password goes only to the official portal and is never stored by us.</p>'
-             '<div class="notice"><b>Step 1:</b> Open the official portal below and log in '
-             '(solve the CAPTCHA normally). <b>Step 2:</b> Come back here and click '
-             '<b>Pull My Attendance</b>.</div>'
-             '<div class="btn-row" style="margin-bottom:12px">'
+    body += ('<div class="card" style="max-width:620px"><h3><span class="bar"></span>✅ Way 1 — Enter your totals (works right now)</h3>'
+             '<ol class="sub" style="padding-left:18px;display:grid;gap:5px;margin-bottom:12px">'
+             '<li>Open the official portal: '
+             '<a href="https://jntuaceastudents.classattendance.in/" target="_blank" rel="noopener">'
+             '<b>jntuaceastudents.classattendance.in ↗</b></a> and log in.</li>'
+             '<li>For each subject, note the <b>total classes</b> and <b>present</b> numbers.</li>'
+             '<li>Type them below — one subject per line — and press Save.</li></ol>'
+             '<form class="form" method="post" action="/student/summary">'
+             '<textarea name="summary" rows="7" placeholder="Subject Name 36/40&#10;Operating Systems total 40 present 36&#10;DBMS 38 35"></textarea>'
+             '<div class="btn-row"><button class="btn green">💾 Save — Update My Dashboard</button></div></form></div>')
+    # Card 2 — automatic sync (works when the portal is not showing CAPTCHA)
+    body += ('<div class="card" style="max-width:620px;margin-top:16px"><h3><span class="bar"></span>🔗 Way 2 — Automatic sync (when the portal allows)</h3>'
+             '<p class="sub" style="margin-bottom:10px">The official portal currently shows a CAPTCHA to block '
+             'automated logins, so you complete the login yourself: open the portal, log in there, '
+             'then come back and pull. If the portal is not showing a CAPTCHA, the pull works fully automatically.</p>'
+             '<div class="notice"><b>Step 1:</b> open the official portal and log in (CAPTCHA is normal). '
+             '<b>Step 2:</b> come back here and click <b>Pull My Attendance</b>.</div>'
+             '<div class="btn-row" style="margin-bottom:10px">'
              '<a class="btn" href="/bridge" target="_blank" rel="noopener">1️⃣ Open Official Portal</a>'
              '<form method="post" action="/student/pull" style="display:inline">'
              '<button class="btn green">2️⃣ Pull My Attendance</button></form></div>'
-             '<div class="small-note">After pulling, your overall %% and subject-wise %% appear on your '
-             'Dashboard. You can pull again anytime to refresh.</div>'
-             '%s</div>'
-             % last_html)
+             '%s</div>' % last_html)
+    # Card 3 — notes
     body += ('<div class="card" style="max-width:620px;margin-top:16px"><h3><span class="bar"></span>ℹ Notes</h3>'
              '<ul class="sub" style="padding-left:18px;display:grid;gap:6px">'
-             '<li>Sync shows <b>your own</b> attendance only (not everyone\'s data).</li>'
-             '<li>Pulled data is stored here as <b>Official</b> source — your % is calculated from it.</li>'
-             '<li>The official portal session stays valid for a while — to refresh later, just '
-             'open the portal again and pull.</li>'
-             '<li>If pulling fails, open the official portal once more (Step 1) and try again.</li></ul></div>')
+             '<li>Your dashboard shows <b>overall %</b> and <b>subject-wise %</b> with skip/attend advice '
+             '(75% rule) — from the totals you enter or from a successful pull.</li>'
+             '<li>We never store your official portal password.</li>'
+             '<li>If you update the totals, your dashboard updates instantly.</li></ul></div>')
     return page('Sync', topbar(student=st) + body, student=st)
 
 
@@ -1495,6 +1594,25 @@ class App(BaseHTTPRequestHandler):
                     return self.send(200, page_student_password(st, err='Current password is incorrect.'))
                 run("UPDATE students SET password=? WHERE roll=?", (sha(new), st['roll']))
                 return self.send(200, page_student_password(st, msg='Password updated successfully!'))
+            if path == '/student/summary':
+                rows = parse_summary_text(self.field(f, 'summary'))
+                if not rows:
+                    return self.send(200, page_student_sync(
+                        st, err='No valid lines found. Format per line: '
+                                'Subject Name 36/40  (or)  Subject Name total 40 present 36'))
+                run("DELETE FROM att_summary WHERE roll=?", (st['roll'],))
+                for r in rows:
+                    run("INSERT INTO att_summary(roll,key,subject_name,total,present,updated_at) "
+                        "VALUES(?,?,?,?,?,?)",
+                        (st['roll'], norm_key(r['name']), r['name'][:80], r['total'], r['present'],
+                         now_ist().isoformat(timespec='seconds')))
+                n = len(rows)
+                self.send(303, '', extra_headers=[('Location', '/student'),
+                                                  ('Set-Cookie', 'flash=%s; Path=/; Max-Age=8; HttpOnly'
+                                                   % quote('Saved %d subject%s from the official portal ✅ '
+                                                           'Your dashboard is updated.'
+                                                           % (n, '' if n == 1 else 's')))])
+                return
             if path == '/student/pull':
                 # Bridge flow: use the portal session the student created in
                 # their own browser (CAPTCHA solved by a real human there).
