@@ -128,17 +128,27 @@ margin-bottom:8px;cursor:pointer}
 
     <div id="captchaBox" style="display:none;margin-top:4px">
       <div style="background:#FFF7ED;border:1.5px solid #FDBA74;border-radius:12px;padding:12px 14px;margin:10px 0">
-        <b style="color:#C2410C;font-size:13.5px">CAPTCHA unte mee attendance ikkada chudandi (2 options):</b>
+        <b style="color:#C2410C;font-size:13.5px">&#128274; Mee credentials tappu kadu! Portal CAPTCHA (Cloudflare security) server login ni block chestundi.</b>
+        <p style="font-size:12px;color:#9A3412;margin:6px 0 2px">
+          Official portal lo CAPTCHA <b>mee browser lo solve avtundi</b> — app "Check Attendance"
+          server nunchi chestundi, adi block avtundi. So browser lo login chesi, copy chesi,
+          ikkada paste cheyandi — 100% works:</p>
+        <ol style="font-size:12.5px;color:#7C2D12;margin:6px 0 10px 18px;padding:0;line-height:1.8">
+          <li>&#128279; <b>Open Official Portal</b> button nokkandi &rarr; mee roll + password tho
+              login ayyi (CAPTCHA solve avtundi) &rarr; attendance page lo <b>Select All + Copy</b></li>
+          <li>&#128241; Ikkada return ayyi <b>Paste &amp; Calculate</b> nokkandi &rarr; copy chesindi
+              <b>automatic ga detect avtundi</b></li>
+          <li>&#127891; Overall % + subject-wise % + skip/attend advice instant ga!</li>
+        </ol>
         <div style="margin-top:8px">
-          <button class="btn green" onclick="showEntry();" style="margin-top:0">&#128203; Option 1: Paste &amp; Calculate (1 min, 100% works)</button>
+          <button class="btn green" onclick="showEntry();" style="margin-top:0">&#128203; Paste &amp; Calculate (100% works)</button>
           <a class="btn" href="https://jntuaceastudents.classattendance.in/" target="_blank"
-             rel="noopener" style="margin-top:8px">&#128279; Option 2: Official Portal (direct)</a>
+             rel="noopener" style="margin-top:8px">&#128279; Open Official Portal (login + copy)</a>
         </div>
-        <p style="font-size:11.5px;color:#9A3412;margin-top:8px">
-          Option 1 lo: official portal lo attendance page open chesi COPY chesi,
-          ikkada PASTE cheste (or type) &mdash; Overall % + Subject-wise %
-          instant ga vastundi. Option 2 lo: official portal lone mee attendance
-          kanipistundi.</p>
+        <p style="font-size:11px;color:#9A3412;margin-top:8px">
+          <b>Note:</b> portal CAPTCHA appudu on, appudu off (adaptive). Off unde time lo
+          "Check Attendance" direct ga work chestundi — mee 78.6% screenshot la.
+          CAPTCHA active unde varaku browser flow (paina) use cheyandi.</p>
       </div>
     </div>
 
@@ -856,10 +866,11 @@ def app_sync_json(username, password):
                              'does not host the student pages. Use Paste & Calculate '
                              'below (always works).'}
         if 'CAPTCHA' in msg or 'Use https' in msg or 'verification' in msg:
-            return {'error': 'CAPTCHA::The official portal CAPTCHA is ON right now. '
-                             'No auto-retry - tap Paste & Calculate below (100% works): '
-                             'portal lo attendance copy chesi app ki return aithe '
-                             'automatic ga vasthundi.'}
+            return {'error': 'CAPTCHA::Mee credentials tappu kadu - portal CAPTCHA '
+                             '(Cloudflare security) server login ni block chestundi. '
+                             'Browser lo portal open chesi login ayyi attendance COPY chesi '
+                             'ikkada return aithe automatic ga vastundi - Paste & Calculate '
+                             '100% works.'}
         if 'rejected' in msg.lower() or 'credential' in msg.lower():
             return {'error': 'Login failed: ' + msg[:160]}
         return {'error': 'Could not connect to the official portal. Try again in a minute.'}
