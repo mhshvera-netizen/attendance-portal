@@ -161,6 +161,11 @@ margin-bottom:8px;cursor:pointer}
 
     <!-- ===== BOOKMARKLET ===== -->
     <div class="card" id="bmCard" style="margin-top:6px;border-color:#1171e9">
+      <div style="background:#FEE2E2;border:1.5px solid #FCA5A5;border-radius:10px;padding:9px 12px;margin-bottom:8px;font-size:12px;color:#991B1B;font-weight:700">
+        &#9888;&#65039; Chrome Android lo ee bookmark pani CHEYADU (Chrome restriction - years nunchi undi).
+        Firefox / Kiwi browsers lo pani chestundi. <span style="font-weight:800">Chrome unte - kindaki scroll chesi
+        &#128203; Paste &amp; Calculate use cheyandi (100% works, bookmark avasaram ledu).</span>
+      </div>
       <div style="font-size:11px;font-weight:800;color:#1171e9;letter-spacing:.4px">
         &#127919; MEE FLOW: CAPTCHA nuvvu solve cheyandi &rarr; helper oka tap &rarr; read + calculate AUTOMATIC
       </div>
