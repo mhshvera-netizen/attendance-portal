@@ -196,6 +196,317 @@ margin-bottom:8px;cursor:pointer}
            rel="noopener" style="flex:0 0 auto;margin-top:0;background:#059669;padding:13px 14px">&#128279; Open Portal</a>
       </div>
       <textarea id="bmCode" readonly style="min-height:52px;font-size:11px;margin-top:8px;background:#f4f7fb"></textarea>
+      <textarea id="bmRaw" style="display:none">javascript:(function () {
+  if (window.__jnBM) return;
+  window.__jnBM = true;
+
+  var APP_URL = (window.__jnApp || '__JNAPP__') + '';
+
+  function strip(s) {
+    return String(s == null ? '' : s).replace(/&lt;[^&gt;]+&gt;/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&amp;/g, '&amp;amp;').replace(/&lt;/g, '&amp;lt;').replace(/&gt;/g, '&amp;gt;');
+  }
+  function delay(ms) { return new Promise(function (res) { setTimeout(res, ms); }); }
+  function post(u, b) {
+    var p = [];
+    for (var k in b) if (Object.prototype.hasOwnProperty.call(b, k))
+      p.push(encodeURIComponent(k) + '=' + encodeURIComponent(b[k] || ''));
+    return fetch(u, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: p.join('&amp;'),
+      credentials: 'same-origin'
+    }).then(function (r) { return r.text(); });
+  }
+  function get(u) { return fetch(u, { credentials: 'same-origin' }).then(function (r) { return r.text(); }); }
+
+  function parseDetails(html) {
+    var d = {};
+    var re = /&lt;li[^&gt;]*class="list-group-item"[\s\S]*?&lt;\/li&gt;/g, m;
+    while ((m = re.exec(html)) !== null) {
+      var li = m[0];
+      var sm = li.match(/&lt;strong[^&gt;]*&gt;([\s\S]*?)&lt;\/strong&gt;/);
+      if (sm) d[strip(sm[1]).replace(/:$/, '')] = strip(li.replace(/&lt;strong[^&gt;]*&gt;[\s\S]*?&lt;\/strong&gt;/, ''));
+    }
+    var fm = html.match(/&lt;form[^&gt;]*action=["']studentsubjects\.php["'][\s\S]*?&lt;\/form&gt;/);
+    if (fm) {
+      var ins = fm[0].match(/&lt;input[^&gt;]*&gt;/g) || [];
+      for (var i = 0; i &lt; ins.length; i++) {
+        var nm = ins[i].match(/name=["']([^"']+)["']/);
+        var vl = ins[i].match(/value=["']([^"']*)["']/);
+        if (nm &amp;&amp; vl) d[nm[1]] = vl[1];
+      }
+    }
+    return d;
+  }
+
+  function parseSubjects(html) {
+    var out = [];
+    var forms = html.match(/&lt;form[^&gt;]*action=["']studentsubatt\.php["'][\s\S]*?&lt;\/form&gt;/g) || [];
+    for (var i = 0; i &lt; forms.length; i++) {
+      var o = {};
+      var ins = forms[i].match(/&lt;input[^&gt;]*&gt;/g) || [];
+      for (var j = 0; j &lt; ins.length; j++) {
+        var nm = ins[j].match(/name=["']([^"']+)["']/);
+        var vl = ins[j].match(/value=["']([^"']*)["']/);
+        if (nm &amp;&amp; vl) o[nm[1]] = vl[1];
+      }
+      if (Object.keys(o).length) out.push(o);
+    }
+    return out;
+  }
+
+  function parseRows(html) {
+    var tables = html.match(/&lt;table[^&gt;]*&gt;[\s\S]*?&lt;\/table&gt;/g) || [];
+    for (var ti = 0; ti &lt; tables.length; ti++) {
+      var tbl = tables[ti];
+      if (!/present|absent/i.test(tbl)) continue;
+      var trs = tbl.match(/&lt;tr[^&gt;]*&gt;[\s\S]*?&lt;\/tr&gt;/g) || [];
+      var statusIdx = -1, rows = [];
+      for (var i = 0; i &lt; trs.length; i++) {
+        var tr = trs[i];
+        var cells = tr.match(/&lt;t[dh][^&gt;]*&gt;[\s\S]*?&lt;\/t[dh]&gt;/g) || [];
+        if (/&lt;th/i.test(tr)) {
+          for (var c = 0; c &lt; cells.length; c++) {
+            if (/status|attendance/i.test(strip(cells[c]))) { statusIdx = c; break; }
+          }
+          continue;
+        }
+        var texts = [];
+        for (var c = 0; c &lt; cells.length; c++) texts.push(strip(cells[c]));
+        if (!texts.length) continue;
+        var idx = statusIdx &gt;= 0 ? statusIdx : texts.length - 1;
+        var status = (texts[idx] || '').toLowerCase();
+        var date = '', time = '';
+        for (var c = 0; c &lt; texts.length; c++) {
+          if (!date &amp;&amp; /\d{1,2}[-\/]\d{1,2}[-\/]\d{2,4}/.test(texts[c])) date = texts[c];
+          if (!time &amp;&amp; /\d{1,2}:\d{2}\s*(AM|PM)/i.test(texts[c])) time = texts[c];
+        }
+        if (!date) date = texts[0] || '';
+        if (status === 'present') rows.push({ d: date, t: time, s: 'P' });
+        else if (status === 'absent') rows.push({ d: date, t: time, s: 'A' });
+      }
+      if (rows.length) return rows;
+    }
+    return [];
+  }
+
+  // ---------- overlay UI ----------
+  var ov = null;
+  function openOverlay() {
+    if (ov) { ov.remove(); ov = null; }
+    ov = document.createElement('div');
+    ov.id = 'jnBMOverlay';
+    ov.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#f6f9fe;'
+      + 'z-index:2147483647;overflow:auto;font-family:system-ui,Arial,sans-serif;'
+      + 'color:#10213d;padding:16px;box-sizing:border-box';
+    document.body.appendChild(ov);
+    return ov;
+  }
+  function closeOverlay() { if (ov) { ov.remove(); ov = null; } }
+
+  function showSync(total) {
+    var o = openOverlay();
+    o.innerHTML = '&lt;div style="text-align:center;padding-top:70px"&gt;'
+      + '&lt;div style="font-size:42px"&gt;&amp;#127891;&lt;/div&gt;'
+      + '&lt;div style="font-size:24px;font-weight:800;letter-spacing:3px;margin-top:14px"&gt;SYNCING&lt;/div&gt;'
+      + '&lt;div style="color:#63728a;margin-top:6px"&gt;Reading your semester (in your browser)&lt;/div&gt;'
+      + '&lt;div id="jnBMStep" style="margin-top:22px;font-size:15px;font-weight:700;color:#1171e9"&gt;Processed 0 of ' + total + ' subjects  0%&lt;/div&gt;'
+      + '&lt;div style="max-width:280px;margin:12px auto 0;height:8px;background:#e3ecf7;border-radius:6px;overflow:hidden"&gt;'
+      + '&lt;div id="jnBMBar" style="width:0%;height:100%;background:linear-gradient(90deg,#1171e9,#073d92);border-radius:6px;transition:width .3s"&gt;&lt;/div&gt;&lt;/div&gt;'
+      + '&lt;div style="margin-top:26px;font-size:11px;color:#63728a"&gt;Your browser session &amp;middot; jntuaceastudents.classattendance.in&lt;/div&gt;&lt;/div&gt;';
+  }
+  function setProgress(done, total) {
+    var el = document.getElementById('jnBMStep');
+    var bar = document.getElementById('jnBMBar');
+    if (el) el.textContent = 'Processed ' + done + ' of ' + total + ' subjects  '
+      + (total ? Math.round(done * 100 / total) : 0) + '%';
+    if (bar) bar.style.width = (total ? Math.round(done * 100 / total) : 0) + '%';
+  }
+  function showFail(msg) {
+    var o = openOverlay();
+    o.innerHTML = '&lt;div style="text-align:center;padding-top:80px"&gt;'
+      + '&lt;div style="font-size:40px"&gt;&amp;#9888;&amp;#65039;&lt;/div&gt;'
+      + '&lt;div style="font-size:17px;font-weight:800;margin-top:14px"&gt;' + esc(msg) + '&lt;/div&gt;'
+      + '&lt;div style="color:#63728a;font-size:13px;margin-top:8px"&gt;Official portal lo login ayyaka malli try cheyandi.&lt;/div&gt;'
+      + '&lt;button onclick="var e=document.getElementById(\'jnBMOverlay\');if(e)e.remove()" '
+      + 'style="margin-top:18px;padding:10px 22px;border:none;border-radius:10px;background:#1171e9;color:#fff;font-size:14px;font-weight:700;cursor:pointer"&gt;Close&lt;/button&gt;&lt;/div&gt;';
+  }
+
+  function showDash(name, roll, cls, out, totD, totP) {
+    var overall = totD ? Math.round(totP * 1000 / totD) / 10 : 0;
+    var ovColor = totD ? (overall &gt;= 75 ? '#059669' : '#DC2626') : '#63728a';
+    var cards = '';
+    out.forEach(function (s) {
+      var color = s.total ? (s.pct &gt;= 75 ? '#059669' : (s.pct &gt;= 60 ? '#D97706' : '#DC2626')) : '#63728a';
+      var adv;
+      if (!s.total) adv = 'No classes recorded yet';
+      else if (s.pct &gt;= 75) {
+        var can = Math.max(0, Math.floor(s.present / 0.75 - s.total));
+        adv = can &gt; 0 ? ('Skip ' + can + ' class' + (can === 1 ? '' : 'es')) : 'Keep attending';
+      } else {
+        var need = Math.max(1, Math.ceil((0.75 * s.total - s.present) / 0.25));
+        adv = 'Attend ' + need + ' more';
+      }
+      var log = '';
+      if (s.rows &amp;&amp; s.rows.length) {
+        log = '&lt;div style="display:none;margin-top:8px;border-top:1px solid #e3ecf7;padding-top:8px"&gt;'
+          + s.rows.map(function (r) {
+            var absent = (r.s === 'A');
+            return '&lt;div style="display:flex;justify-content:space-between;font-size:12px;color:#63728a;padding:2px 0;gap:8px"&gt;'
+              + '&lt;b style="color:#10213d"&gt;' + esc(r.d) + '&lt;/b&gt;'
+              + '&lt;span style="color:' + (absent ? '#DC2626' : '#059669') + ';font-weight:700"&gt;' + (absent ? 'Absent' : 'Present') + '&lt;/span&gt;'
+              + '&lt;span&gt;' + esc(r.t || '') + '&lt;/span&gt;&lt;/div&gt;';
+          }).join('') + '&lt;/div&gt;';
+      }
+      cards += '&lt;div style="background:#fff;border:1px solid #e3ecf7;border-radius:12px;padding:12px 14px;margin-bottom:8px;cursor:pointer" '
+        + 'onclick="var l=this.querySelector(\'.jnBMlog\');if(l)l.style.display=l.style.display===\'block\'?\'none\':\'block\'"&gt;'
+        + '&lt;div style="display:flex;justify-content:space-between;align-items:center"&gt;'
+        + '&lt;span style="font-weight:800;font-size:14px"&gt;' + esc(s.nm) + '&lt;/span&gt;'
+        + '&lt;span style="font-size:16px;font-weight:800;color:' + color + '"&gt;' + s.pct + '%&lt;/span&gt;&lt;/div&gt;'
+        + '&lt;div style="color:#63728a;font-size:12px;margin-top:2px"&gt;Tot ' + s.total + ' &amp;middot; Att ' + s.present + ' &amp;middot; Abs ' + (s.total - s.present) + '&lt;/div&gt;'
+        + '&lt;div style="font-size:12px;font-weight:700;margin-top:4px;color:' + color + '"&gt;' + adv + '&lt;/div&gt;'
+        + '&lt;div class="jnBMlog"&gt;' + log + '&lt;/div&gt;&lt;/div&gt;';
+    });
+
+    // Build "Name present/total" lines for the app
+    var lines = out.map(function (s) {
+      return s.nm + ' ' + s.present + '/' + s.total;
+    });
+    var payload = encodeURIComponent((roll || '') + '|' + (name || '') + '|' + lines.join('\n'));
+    var appLink = APP_URL + '#d=' + payload;
+
+    var o = openOverlay();
+    o.innerHTML = '&lt;div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px"&gt;'
+      + '&lt;div style="font-weight:800;color:#1171e9"&gt;&amp;#127891; JNTUACEA Attendance &lt;span style="font-size:10px;color:#059669"&gt;(in your browser)&lt;/span&gt;&lt;/div&gt;'
+      + '&lt;button onclick="var e=document.getElementById(\'jnBMOverlay\');if(e)e.remove()" '
+      + 'style="border:none;background:#eef1f6;border-radius:8px;padding:6px 12px;font-size:13px;font-weight:700;color:#63728a;cursor:pointer"&gt;Close&lt;/button&gt;&lt;/div&gt;'
+      + '&lt;div style="font-size:20px;font-weight:800;text-transform:uppercase"&gt;' + esc(name || '') + '&lt;/div&gt;'
+      + '&lt;div style="color:#63728a;font-size:13px;margin-top:2px"&gt;' + esc(roll || '') + (cls ? '  :  ' + esc(cls) : '') + '&lt;/div&gt;'
+      + '&lt;div style="background:#fff;border:1px solid #e3ecf7;border-radius:16px;padding:16px;text-align:center;margin:14px 0"&gt;'
+      + '&lt;div style="font-size:10px;font-weight:800;letter-spacing:1.4px;color:#63728a"&gt;OVERALL ATTENDANCE&lt;/div&gt;'
+      + '&lt;div style="font-size:44px;font-weight:800;color:' + ovColor + '"&gt;' + overall + '%&lt;/div&gt;'
+      + '&lt;div style="display:flex;justify-content:center;gap:26px;margin-top:8px"&gt;'
+      + '&lt;div&gt;&lt;div style="font-size:18px;font-weight:800"&gt;' + totD + '&lt;/div&gt;&lt;div style="font-size:10px;letter-spacing:1px;color:#63728a;font-weight:800"&gt;TOTAL&lt;/div&gt;&lt;/div&gt;'
+      + '&lt;div&gt;&lt;div style="font-size:18px;font-weight:800;color:#059669"&gt;' + totP + '&lt;/div&gt;&lt;div style="font-size:10px;letter-spacing:1px;color:#63728a;font-weight:800"&gt;ATT&lt;/div&gt;&lt;/div&gt;'
+      + '&lt;div&gt;&lt;div style="font-size:18px;font-weight:800;color:#DC2626"&gt;' + (totD - totP) + '&lt;/div&gt;&lt;div style="font-size:10px;letter-spacing:1px;color:#63728a;font-weight:800"&gt;ABS&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;'
+      + (totD ? '&lt;div style="margin-top:10px;font-size:13px;font-weight:700;color:' + ovColor + '"&gt;'
+        + (overall &gt;= 75
+          ? ('Overall safe to skip ' + Math.max(0, Math.floor(totP / 0.75 - totD)) + ' class'
+             + (Math.max(0, Math.floor(totP / 0.75 - totD)) === 1 ? '' : 'es') + ' while staying above 75%')
+          : ('Attend ' + Math.max(1, Math.ceil((0.75 * totD - totP) / 0.25)) + ' more classes to reach 75% overall'))
+        + '&lt;/div&gt;' : '')
+      + '&lt;a href="' + appLink + '" target="_blank" rel="noopener" '
+      + 'style="display:block;text-align:center;margin-top:14px;padding:13px;border-radius:12px;background:linear-gradient(135deg,#1171e9,#073d92);color:#fff;font-size:15px;font-weight:800;text-decoration:none"&gt;&amp;#128241; Open in App (auto-fills data)&lt;/a&gt;'
+      + '&lt;button onclick="var t=document.createElement(\'textarea\');t.value=window.__jnBMLines||\'\';document.body.appendChild(t);t.select();try{document.execCommand(\'copy\')}catch(e){}t.remove();this.textContent=\'Copied!\';var b=this;setTimeout(function(){b.textContent=\'Copy lines\'},1500)" '
+      + 'style="display:block;width:100%;margin-top:8px;padding:11px;border:1.5px solid #1171e9;border-radius:12px;background:#fff;color:#1171e9;font-size:14px;font-weight:800;cursor:pointer"&gt;&amp;#128203; Copy lines&lt;/button&gt;'
+      + '&lt;div style="font-size:11px;font-weight:800;letter-spacing:1.4px;color:#63728a;margin:16px 0 8px"&gt;SUBJECTS (' + out.length + ')&lt;/div&gt;'
+      + cards
+      + '&lt;p style="text-align:center;font-size:11px;color:#63728a;margin-top:16px"&gt;Subject click cheste date-wise log expand avthundi&lt;/p&gt;';
+
+    window.__jnBMLines = lines.join('\n');
+  }
+
+  // ---------- main flow (same logic as APK/extension) ----------
+  function runSync() {
+    var name = '', roll = '', cls = '', baseBody = {};
+    get('studenthome.php').then(function (home) {
+      if (/name=["']username["']/.test(home)) {
+        showFail('Please login first (username + password + CAPTCHA), then try again.');
+        throw 'stop';
+      }
+      var d = parseDetails(home);
+      Object.keys(d).forEach(function (k) {
+        var lk = k.toLowerCase();
+        if (!name &amp;&amp; lk.indexOf('name') &gt;= 0) name = d[k];
+        if (!roll &amp;&amp; (lk.indexOf('roll') &gt;= 0 || lk.indexOf('ht') &gt;= 0 || lk.indexOf('admission') &gt;= 0)) roll = d[k];
+        if (!cls &amp;&amp; (lk === 'class name' || lk === 'classname')) cls = d[k];
+        if (!cls &amp;&amp; lk.indexOf('class') &gt;= 0 &amp;&amp; !/^\d+$/.test(d[k])) cls = d[k];
+      });
+      if (!roll) roll = d.username || '';
+      if (!name) name = roll;
+      baseBody = { student_id: d.student_id, class_id: d.class_id,
+        classname: d.classname, acad_year: d.acad_year };
+      return post('studentsubjects.php', baseBody);
+    }).then(function (html) {
+      var subjects = parseSubjects(html);
+      if (!subjects.length) { showFail('No subjects found. Login ayyaka malli try cheyandi.'); throw 'stop'; }
+      showSync(subjects.length);
+      var chain = Promise.resolve();
+      var out = [], totD = 0, totP = 0;
+      subjects.forEach(function (sub) {
+        chain = chain.then(function () {
+          var nm = sub.sub_fullname || sub.subname || 'Subject';
+          return post('studentsubatt.php', sub).then(function (h) {
+            var recs = parseRows(h);
+            if (!recs.length) {
+              var merged = {};
+              for (var k in baseBody) merged[k] = baseBody[k];
+              for (var k2 in sub) merged[k2] = sub[k2];
+              return post('studentsubjects.php', merged).then(function (page) {
+                var subs2 = parseSubjects(page);
+                var fresh = null;
+                for (var i = 0; i &lt; subs2.length; i++) {
+                  if ((subs2[i].sub_fullname || subs2[i].subname || '') === nm) { fresh = subs2[i]; break; }
+                }
+                if (!fresh &amp;&amp; subs2.length === 1) fresh = subs2[0];
+                if (!fresh) return recs;
+                return post('studentsubatt.php', fresh).then(function (h2) {
+                  var r2 = parseRows(h2);
+                  return r2.length ? r2 : recs;
+                });
+              });
+            }
+            return recs;
+          }).then(function (recs) {
+            var total = recs.length, present = 0;
+            recs.forEach(function (r) { if (r.s === 'P') present++; });
+            var pct = total ? Math.round(present * 1000 / total) / 10 : 0;
+            totD += total; totP += present;
+            out.push({ nm: nm, total: total, present: present, pct: pct, rows: recs.slice(-250) });
+            setProgress(out.length, subjects.length);
+            return delay(400);
+          });
+        });
+      });
+      return chain.then(function () { return { out: out, totD: totD, totP: totP }; });
+    }).then(function (res) {
+      if (!res) return;
+      showDash(name, roll, cls, res.out, res.totD, res.totP);
+    }).catch(function (e) {
+      if (e !== 'stop') showFail('Could not read attendance. Please try again.');
+    });
+  }
+
+  // Floating button on portal pages (manual trigger)
+  function attachButton() {
+    if (!document.body) { setTimeout(attachButton, 300); return; }
+    if (document.getElementById('jnBMFloating')) return;
+    var b = document.createElement('div');
+    b.id = 'jnBMFloating';
+    b.textContent = '\uD83D\uDCCA Attendance';
+    b.style.cssText = 'position:fixed;bottom:20px;right:16px;z-index:2147483646;background:#1171e9;'
+      + 'color:#fff;padding:13px 18px;border-radius:30px;font:bold 15px system-ui,Arial,sans-serif;'
+      + 'box-shadow:0 4px 14px rgba(0,0,0,.4);cursor:pointer';
+    b.onclick = function () { runSync(); };
+    document.body.appendChild(b);
+  }
+  attachButton();
+
+  // Auto-run when the student lands on their home page after login
+  function looksLoggedIn(){
+    try {
+      var bodyText = document.body ? document.body.innerHTML : '';
+      return /studenthome/i.test(location.href) || /logout/i.test(bodyText) || /my details/i.test(bodyText);
+    } catch(e){ return false; }
+  }
+  if (looksLoggedIn()) {
+    setTimeout(runSync, 700);
+  }
+})();
+</textarea>
 
       <div style="font-size:12px;font-weight:700;color:#059669;margin-top:8px">Use chesaka:</div>
       <ol style="font-size:12px;color:var(--ink);margin:2px 0 0 18px;padding:0;line-height:1.7">
@@ -689,10 +1000,15 @@ function fillSample(){
 }
 
 var BM_CODE = (function(){
-  // Build the bookmarklet from THIS page's own URL, so it works from any host.
-  var u = location.href.split('#')[0].split('?')[0];
-  var dir = u.substring(0, u.lastIndexOf('/') + 1);   // folder of this page
-  return "javascript:(function(){window.__jnApp='" + u + "';var s=document.createElement('script');s.src='" + dir + "bm.js';s.onload=function(){window.__jnBM&&console.log('JNTUACEA helper ready')};document.body.appendChild(s)})();";
+  // Self-contained bookmarklet: full helper code embedded (no external load -
+  // portal CSP blocks external scripts, that's why the old one did nothing).
+  try {
+    var raw = document.getElementById('bmRaw').value || '';
+    var u = location.href.split('#')[0].split('?')[0];
+    return raw.split('__JNAPP__').join(u);
+  } catch(e){
+    return "javascript:alert('Helper not loaded - please refresh the app page')";
+  }
 })();
 // Make the drag-link carry the bookmarklet code (PC drag-to-bookmarks-bar)
 (function(){
