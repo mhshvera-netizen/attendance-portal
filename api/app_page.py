@@ -160,23 +160,49 @@ margin-bottom:8px;cursor:pointer}
     </div>
 
     <!-- ===== BOOKMARKLET ===== -->
-    <div class="card" id="bmCard" style="margin-top:6px">
-      <div style="font-size:11px;font-weight:800;color:var(--muted);letter-spacing:.4px">
-        &#128279; BROWSER HELPER (bookmarklet) &mdash; web lo APK la &mdash; 100% in YOUR browser
+    <div class="card" id="bmCard" style="margin-top:6px;border-color:#1171e9">
+      <div style="font-size:11px;font-weight:800;color:#1171e9;letter-spacing:.4px">
+        &#127919; MEE FLOW: CAPTCHA nuvvu solve cheyandi &rarr; helper oka tap &rarr; read + calculate AUTOMATIC
       </div>
       <p style="font-size:12px;color:var(--muted);margin:6px 0 8px">
-        Portal lo login ayyaka oka tap &mdash; attendance scrap ayi dashboard vasthundi.
-        Server avasaram ledu. <b style="color:var(--ink)">Setup:</b></p>
-      <ol style="font-size:12px;color:var(--ink);margin:0 0 10px 18px;padding:0;line-height:1.7">
-        <li>Phone lo <b>official portal</b> open cheyandi &rarr; login ayyi undandi</li>
-        <li>Browser menu &rarr; <b>Add bookmark</b> &rarr; URL lo <b>Edit</b> lo velli code paste cheyandi (kinda)</li>
-        <li>Login ayyaka portal lo unnapudu aa bookmark tap cheyandi &rarr; dashboard vastundi</li>
-        <li>Dashboard lo <b>Open in App</b> button &rarr; ikkada auto-fill + auto-calculate</li>
+        Browser security valla app lo official portal captcha kanipinchadu (portal embed block
+        chestundi). Kani ee helper tho: portal lo login ayyaka <b>oka tap</b> lo attendance
+        chadivi calculate chestundi &mdash; copy cheyalsina avasaram ledu! <b>Oka saari setup:</b></p>
+
+      <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:10px 12px;margin:8px 0">
+        <div style="font-size:12px;font-weight:800;color:#1E40AF;margin-bottom:6px">1) PC/Desktop &mdash; EASIEST (drag &amp; drop)</div>
+        <div style="font-size:12px;color:#1E40AF;line-height:1.6">
+          Kotha bookmark cheyadam kadu &mdash; idi <b>drag chesi bookmarks bar lo vadileyandi</b>:</div>
+        <a id="bmDragLink" href="#" draggable="true"
+           style="display:block;text-align:center;margin:8px 0 2px;padding:11px;border-radius:10px;
+                  background:linear-gradient(135deg,#1171e9,#073d92);color:#fff;font-size:14px;
+                  font-weight:800;text-decoration:none;cursor:grab">&#128279; &#127919; JNTU Attendance Helper &mdash; drag me to bookmarks bar</a>
+        <div style="font-size:11px;color:#1E40AF;margin-top:4px">
+          Bookmarks bar (Ctrl+Shift+B) open lo &mdash; ee link ni akkadiki drag cheyandi. Done!</div>
+      </div>
+
+      <div style="background:#FFF7ED;border:1px solid #FDBA74;border-radius:10px;padding:10px 12px;margin:8px 0">
+        <div style="font-size:12px;font-weight:800;color:#C2410C;margin-bottom:6px">2) Phone &mdash; copy + bookmark</div>
+        <ol style="font-size:12px;color:#9A3412;margin:0 0 6px 18px;padding:0;line-height:1.7">
+          <li>Kinda <b>Copy Bookmarklet Code</b> button nokkandi</li>
+          <li>Browser lo <b>official portal</b> open cheyandi &rarr; menu &rarr; <b>Add bookmark</b> &rarr; <b>Edit</b> &rarr; URL lo code <b>paste</b> cheyandi</li>
+          <li>Login ayyaka portal lo unnapudu aa bookmark <b>tap</b> cheyandi &rarr; dashboard!</li>
+        </ol>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button class="btn green" onclick="copyBM();" style="flex:1;margin-top:0">&#128203; Copy Bookmarklet Code</button>
+        <a class="btn" href="https://jntuaceastudents.classattendance.in/" target="_blank"
+           rel="noopener" style="flex:0 0 auto;margin-top:0;background:#059669;padding:13px 14px">&#128279; Open Portal</a>
+      </div>
+      <textarea id="bmCode" readonly style="min-height:52px;font-size:11px;margin-top:8px;background:#f4f7fb"></textarea>
+
+      <div style="font-size:12px;font-weight:700;color:#059669;margin-top:8px">Use chesaka:</div>
+      <ol style="font-size:12px;color:var(--ink);margin:2px 0 0 18px;padding:0;line-height:1.7">
+        <li>Portal lo login (captcha mee browser lo solve avtundi)</li>
+        <li>Helper bookmark tap &rarr; "Reading your semester..." &rarr; dashboard</li>
+        <li>Dashboard lo <b>Open in App</b> &rarr; ikkada auto-fill + auto-calculate</li>
       </ol>
-      <button class="btn green" onclick="copyBM();" style="margin-top:0">&#128203; Copy Bookmarklet Code</button>
-      <textarea id="bmCode" readonly style="min-height:56px;font-size:11px;margin-top:8px;background:#f4f7fb"></textarea>
-      <p style="font-size:11px;color:var(--muted);margin-top:6px">
-        PC lo: koncham easier &mdash; danlo bookmark ki right-click &rarr; Edit &rarr; URL replace cheyandi.</p>
     </div>
   </div>
 
@@ -667,6 +693,19 @@ var BM_CODE = (function(){
   var u = location.href.split('#')[0].split('?')[0];
   var dir = u.substring(0, u.lastIndexOf('/') + 1);   // folder of this page
   return "javascript:(function(){window.__jnApp='" + u + "';var s=document.createElement('script');s.src='" + dir + "bm.js';s.onload=function(){window.__jnBM&&console.log('JNTUACEA helper ready')};document.body.appendChild(s)})();";
+})();
+// Make the drag-link carry the bookmarklet code (PC drag-to-bookmarks-bar)
+(function(){
+  try {
+    var a = document.getElementById('bmDragLink');
+    if (a){
+      a.href = BM_CODE;
+      a.addEventListener('dragstart', function(e){
+        e.dataTransfer.setData('text/uri-list', BM_CODE);
+        e.dataTransfer.setData('text/plain', BM_CODE);
+      });
+    }
+  } catch(e){}
 })();
 function copyBM(){
   document.getElementById('bmCode').value = BM_CODE;
