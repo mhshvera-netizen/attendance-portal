@@ -117,6 +117,19 @@ margin-bottom:8px;cursor:pointer}
     </div>
   </div>
 
+  <!-- SYNCING SCREEN (APK-style) -->
+  <div id="panelSyncScreen" style="display:none;text-align:center;padding:46px 0">
+    <div style="font-size:44px">&#127891;</div>
+    <div id="syncTitle" style="font-size:30px;font-weight:800;letter-spacing:3px;margin-top:16px;color:#10213d">SYNCING</div>
+    <div style="color:#63728a;font-size:15px;margin-top:8px">Reading your semester</div>
+    <div id="syncStep" style="margin-top:22px;font-size:17px;font-weight:700;color:#1171e9">
+      Processed 0 of 0 subjects &nbsp;0%</div>
+    <div style="max-width:300px;margin:14px auto 0;height:8px;background:#e3ecf7;border-radius:6px;overflow:hidden">
+      <div id="syncBar" style="width:0%;height:100%;background:linear-gradient(90deg,#1171e9,#073d92);border-radius:6px;transition:width .3s"></div>
+    </div>
+    <div style="margin-top:26px;font-size:11px;color:#63728a">Secure session &middot; jntuaceastudents.classattendance.in</div>
+  </div>
+
   <!-- QUICK ENTRY -->
   <div id="panelEntry" style="display:none">
     <div class="card">
@@ -168,8 +181,32 @@ function showTab(t){
   document.getElementById('panelSync').style.display = t==='sync' ? '' : 'none';
   document.getElementById('panelEntry').style.display = t==='entry' ? '' : 'none';
   document.getElementById('panelDash').style.display = t==='dash' ? '' : 'none';
+  document.getElementById('panelSyncScreen').style.display = 'none';
   document.getElementById('tabSync').className = 'tab' + (t==='sync'?' on':'');
   document.getElementById('tabEntry').className = 'tab' + (t==='entry'?' on':'');
+}
+
+var SYNC_ANIM = null;
+function startSyncAnimation(){
+  var total = 8;              // typical subject count; bar fills while waiting
+  document.getElementById('panelSync').style.display = 'none';
+  document.getElementById('panelEntry').style.display = 'none';
+  document.getElementById('panelDash').style.display = 'none';
+  document.getElementById('panelSyncScreen').style.display = '';
+  var done = 0;
+  var stepEl = document.getElementById('syncStep');
+  var barEl = document.getElementById('syncBar');
+  stepEl.textContent = 'Processed 0 of ' + total + ' subjects  0%';
+  barEl.style.width = '0%';
+  SYNC_ANIM = setInterval(function(){
+    done = Math.min(total, done + 1);
+    var pct = Math.round(done * 100 / total);
+    stepEl.textContent = 'Processed ' + done + ' of ' + total + ' subjects  ' + pct + '%';
+    barEl.style.width = pct + '%';
+  }, 1400);
+}
+function stopSyncAnimation(){
+  if (SYNC_ANIM){ clearInterval(SYNC_ANIM); SYNC_ANIM = null; }
 }
 
 function msg(id, cls, text){
@@ -232,7 +269,8 @@ function doSync(){
 function doSyncNow(roll, pass){
   var btn = document.getElementById('syncBtn');
   btn.disabled = true; btn.textContent = 'Loading\u2026';
-  msg('syncMsg','ok','Syncing with the official portal \u2014 this can take up to a minute\u2026');
+  msg('syncMsg','ok','');
+  startSyncAnimation();
   fetch('/app/sync', {
     method:'POST',
     headers:{'Content-Type':'application/x-www-form-urlencoded'},
@@ -240,8 +278,8 @@ function doSyncNow(roll, pass){
   }).then(function(r){ return r.json(); })
     .then(function(d){
       btn.disabled = false; btn.textContent = 'Check Attendance \u2192';
-      if (d.error){ msg('syncMsg','err',d.error); return; }
-      msg('syncMsg','ok','');
+      stopSyncAnimation();
+      if (d.error){ showTab('sync'); msg('syncMsg','err',d.error); return; }
       var rows = (d.subjects||[]).map(function(s){
         return {name:s.Subject, total:s.total, present:s.present, rows:s.rows||[]};
       });
@@ -250,6 +288,8 @@ function doSyncNow(roll, pass){
     })
     .catch(function(e){
       btn.disabled = false; btn.textContent = 'Check Attendance \u2192';
+      stopSyncAnimation();
+      showTab('sync');
       msg('syncMsg','err','Could not connect. Please try again or use Quick Entry.');
     });
 }
