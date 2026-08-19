@@ -526,6 +526,13 @@ def app_sync_json(username, password):
         data = scraper.full_fetch(username, password)
     except Exception as e:
         msg = str(e)
+        if 'no subjects' in msg.lower() or 'route' in msg.lower() or 'missing' in msg.lower():
+            return {'error': 'Your login was ACCEPTED, but the portal copy we reached '
+                             'does not host the student pages (the portal runs multiple '
+                             'copies; the one with your data has its CAPTCHA ON for servers). '
+                             'Use the \u201cPortal Route\u201d tab: official website login '
+                             '(CAPTCHA completes on your phone) \u2192 \u201cReading your '
+                             'semester\u201d \u2192 all subject percentages.'}
         if 'CAPTCHA' in msg or 'Use https' in msg or 'verification' in msg:
             return {'error': 'The official portal CAPTCHA is ON right now. '
                              'Tap \u201cWait & Auto-Sync\u201d \u2014 it syncs automatically '
