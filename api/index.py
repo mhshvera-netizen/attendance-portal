@@ -231,10 +231,6 @@ def index(path):
         return Response(_icon('icon-192.png'), mimetype='image/png')
     if 'icon-512' in p:
         return Response(_icon('icon-512.png'), mimetype='image/png')
-    if 'bm.js' in p:
-        pj = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bm.js')
-        with open(pj, 'r', encoding='utf-8') as f:
-            return Response(f.read(), mimetype='application/javascript')
     if 'apk' in p:
         return Response(_b64.b64decode(APK_B64),
                         mimetype='application/vnd.android.package-archive',

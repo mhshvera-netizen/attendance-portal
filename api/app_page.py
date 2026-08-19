@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
 """The in-browser attendance checker - ONE clean flow.
 
-Screen flow (no tabs, no bookmarks, nothing to install):
-  1. LOGIN  - college username + password (remembered on this device)
-  2. SYNCING - "Reading your semester" with live progress
-  3. DASHBOARD - OVERALL % + SUBJECT-WISE % (all subjects) + tap for log
+  1. LOGIN    - username + password (saved on this device)
+  2. SYNCING  - "Reading your semester" with progress
+  3. DASHBOARD - OVERALL % + SUBJECT-WISE % + tap subject for log
 
-Auto behavior (user does nothing extra):
-  * saved credentials + portal open  -> syncs automatically on page load
-  * portal CAPTCHA ON                -> the page waits and re-tries by
-    itself every 45 seconds; the moment the portal opens it syncs.
-  * Quick Entry fallback             -> small link, always works
+Automatic behaviour (user does nothing extra):
+  * saved credentials + portal open  -> syncs on page load
+  * portal CAPTCHA ON                -> the page re-tries by itself every
+    45 seconds; the moment the portal opens it syncs automatically.
+  * Quick Entry fallback             -> always works, 2 minutes
 """
-
-import re
 
 try:
     import requests  # noqa
@@ -51,7 +48,6 @@ textarea{min-height:110px}
 .btn{display:block;width:100%;padding:13px;border:none;border-radius:12px;background:var(--blue);
 color:#fff;font-size:15px;font-weight:800;cursor:pointer;margin-top:14px;text-align:center;text-decoration:none}
 .btn.green{background:var(--green)}
-.btn.gray{background:#64748b}
 .msg{display:none;padding:10px 13px;border-radius:10px;font-size:13px;margin-top:10px}
 .msg.err{display:block;background:#FDE8E8;color:#9B1C1C;border:1px solid #F2C4C4}
 .msg.ok{display:block;background:#E7F6EF;color:#046C4E;border:1px solid #BFE6CF}
@@ -61,7 +57,6 @@ color:#fff;font-size:15px;font-weight:800;cursor:pointer;margin-top:14px;text-al
 .status.gray{display:block;background:#EEF1F6;color:#66748f;border:1px solid #DFE4EC}
 .links{text-align:center;margin-top:14px;font-size:12.5px}
 .links a{color:var(--blue);font-weight:700;text-decoration:none}
-/* syncing overlay */
 #syncOverlay{display:none;position:fixed;inset:0;background:var(--bg);z-index:50;
 text-align:center;padding-top:64px}
 #syncOverlay .big{font-size:42px}
@@ -71,7 +66,6 @@ text-align:center;padding-top:64px}
 #syncOverlay .bar{max-width:280px;margin:12px auto 0;height:8px;background:var(--line);border-radius:6px;overflow:hidden}
 #syncOverlay .bar div{width:0%;height:100%;background:linear-gradient(90deg,#1171e9,#073d92);border-radius:6px;transition:width .3s}
 #syncOverlay .foot{margin-top:24px;font-size:11px;color:var(--muted)}
-/* dashboard */
 .d-name{font-size:21px;font-weight:800;text-transform:uppercase}
 .d-roll{color:var(--muted);font-size:13px;margin-top:2px}
 .ovcard{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;
@@ -105,9 +99,7 @@ margin-bottom:8px;cursor:pointer}
 
   <!-- ============ LOGIN ============ -->
   <div id="screenLogin">
-    <div class="top">
-      <span class="brand">&#127891; JNTUACEA Attendance</span>
-    </div>
+    <div class="top"><span class="brand">&#127891; JNTUACEA Attendance</span></div>
     <h1>Check Your Attendance</h1>
     <p class="sub">Secure access to your JNTUACEA attendance records &mdash; subject-wise,
     updated in real time.</p>
@@ -127,33 +119,10 @@ margin-bottom:8px;cursor:pointer}
         syncs automatically. Your password is never stored on any server.</p>
     </div>
 
-    <div class="card" style="border:1.5px solid #1171e9">
-      <label style="margin-top:0;font-size:12px;color:#1171e9">&#128273; CAPTCHA-FIRST METHOD &mdash; OFFICIAL WEBSITE + OUR CONCEPT</label>
-      <p style="font-size:13px;color:var(--muted);margin-top:6px;line-height:1.7">
-        Official portal lo <b>CAPTCHA ni mee finger tho solve</b> chestaru &mdash; appudu mana dashboard
-        <b>official website meeda ne</b> open avthundi: SYNCING &rarr; Overall % + Subject-wise %.<br><br>
-        <b style="color:var(--ink)">Option A &mdash; Bookmark (okkasari, best):</b><br>
-        1. <b>&#128203; Copy Bookmark Script</b> tap &rarr; 2. <b>&#128279; Open Official Portal</b> &rarr;
-        login (CAPTCHA) &rarr; 3. Chrome &#8942; &rarr; &#9733; Save &rarr; &#8942; &rarr; Bookmarks &rarr;
-        &#8942; &rarr; Edit &rarr; URL delete &rarr; paste &rarr; Save.<br>
-        <i>Taruvata prati roju:</i> portal login &rarr; bookmark tap &rarr; attendance!<br><br>
-        <b style="color:var(--ink)">Option B &mdash; Address bar (bookmark ledu, prati sari 5 sec):</b><br>
-        1. <b>&#128203; Copy Address Script</b> &rarr; 2. portal open &rarr; login (CAPTCHA) &rarr;
-        3. Address bar tap &rarr; <b>javascript:</b> ani type cheyandi &rarr; paste &rarr; Enter &rarr; attendance!
-      </p>
-      <button class="btn" onclick="copyBookmark()">&#128203; Copy Bookmark Script</button>
-      <button class="btn gray" onclick="copyAddress()">&#128203; Copy Address Script</button>
-      <a class="btn green" href="https://jntuaceastudents.classattendance.in/"
-         target="_blank" rel="noopener">&#128279; Open Official Portal &rarr;</a>
-      <textarea readonly id="scriptBox" style="margin-top:10px;height:56px;font-size:11px"
-        onclick="this.select()"></textarea>
-      <div class="msg" id="copyMsg" style="display:none"></div>
-    </div>
-
     <div class="links">
       <a href="#" onclick="showEntry();return false;">&#9998; Quick Entry (always works)</a>
       &nbsp;&middot;&nbsp;
-      <a href="/downloads/app.apk">&#128241; Download Android App</a>
+      <a href="/downloads/app.apk">&#128241; Android App</a>
     </div>
   </div>
 
@@ -219,7 +188,6 @@ margin-bottom:8px;cursor:pointer}
 <script>
 var STATE = {name:'', roll:'', subs:[]};
 
-// ---------------- screens ----------------
 function showLogin(){
   document.getElementById('screenLogin').classList.remove('hidden');
   document.getElementById('screenEntry').classList.add('hidden');
@@ -237,7 +205,6 @@ function showDash(){
   document.getElementById('screenDash').classList.remove('hidden');
 }
 
-// ---------------- sync animation ----------------
 var SYNC_TIMER = null;
 function startSync(){
   var total = 8;
@@ -258,16 +225,11 @@ function stopSync(){
   document.getElementById('syncOverlay').style.display = 'none';
 }
 
-// ---------------- msg helpers ----------------
 function msg(id, cls, text){
   var m = document.getElementById(id);
   m.className = 'msg ' + cls;
   m.textContent = text;
-  if (cls === 'ok'){ /* keep ok visible */ }
 }
-
-// ---------------- status + auto wait ----------------
-var AUTO = {timer: null};
 
 function setStatus(txt, cls){
   var b = document.getElementById('statusBox');
@@ -275,14 +237,16 @@ function setStatus(txt, cls){
   b.className = 'status ' + cls;
 }
 
+var AUTO = {timer: null};
+
 function checkStatus(cb){
   fetch('/app/status').then(function(r){ return r.json(); }).then(function(d){
     var now = new Date().toLocaleTimeString();
     if (d.open){
       setStatus('\uD83D\uDFE2 Portal is OPEN \u2014 auto-sync works (checked ' + now + ')', 'green');
     } else if (d.captcha){
-      setStatus('\uD83D\uDD34 Portal CAPTCHA is ON \u2014 page will retry by itself every '
-        + '45s and sync the moment it opens (checked ' + now + ')', 'red');
+      setStatus('\uD83D\uDD34 Portal CAPTCHA is ON \u2014 page retries by itself every 45s '
+        + 'and syncs the moment it opens (checked ' + now + ')', 'red');
     } else {
       setStatus('\u26AA Could not reach the portal (checked ' + now + ')', 'gray');
     }
@@ -308,32 +272,6 @@ function autoWait(){
   }, 45000);
 }
 
-// ---------------- portal route (bookmark / address bar) ----------------
-var BM_BOOKMARK = __BM_BOOKMARK__;
-var BM_ADDRESS = __BM_ADDRESS__;
-
-function copyBookmark(){ copyScript(BM_BOOKMARK); }
-function copyAddress(){ copyScript(BM_ADDRESS); }
-
-function copyScript(txt){
-  document.getElementById('scriptBox').value = txt;
-  var after = function(){
-    var m = document.getElementById('copyMsg');
-    m.className = 'msg ok';
-    m.style.display = 'block';
-    m.textContent = 'Copied! Ippudu Open Official Portal tap chesi login cheyandi (CAPTCHA), taruvata Option A/B step 3 cheyandi.';
-  };
-  if (navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(txt).then(after).catch(function(){ selectBox(); after(); });
-  } else { selectBox(); after(); }
-}
-
-function selectBox(){
-  var b = document.getElementById('scriptBox');
-  b.focus(); b.select();
-}
-
-// ---------------- sync ----------------
 function doSync(){
   var roll = document.getElementById('syncRoll').value.trim().toUpperCase();
   var pass = document.getElementById('syncPass').value;
@@ -365,7 +303,7 @@ function doSyncNow(roll, pass, quiet){
         if (d.error.indexOf('CAPTCHA') >= 0 || d.error.indexOf('verification') >= 0){
           msg('syncMsg','err', d.error);
           checkStatus();
-          autoWait();          // nothing for the user to do - page waits itself
+          autoWait();
         } else {
           showLogin();
           msg('syncMsg','err', d.error);
@@ -394,7 +332,6 @@ function doSyncNow(roll, pass, quiet){
     });
 }
 
-// ---------------- quick entry ----------------
 function loadEntryPrefs(){
   try {
     document.getElementById('entryRoll').value = localStorage.getItem('jnt_eroll')||'';
@@ -447,7 +384,6 @@ function doEntry(){
   showDash();
 }
 
-// ---------------- dashboard ----------------
 function renderDash(name, roll, rows, rowsBySubj){
   STATE.name = name; STATE.roll = roll;
   var tot = 0, pres = 0;
@@ -527,7 +463,6 @@ function filterSubs(){
   });
 }
 
-// ---------------- init ----------------
 (function init(){
   try {
     var roll = localStorage.getItem('jnt_roll') || '';
@@ -540,7 +475,6 @@ function filterSubs(){
       var roll = document.getElementById('syncRoll').value.trim().toUpperCase();
       var pass = document.getElementById('syncPass').value;
       if (roll.length >= 5 && pass){
-        // saved credentials + portal open -> sync automatically, no taps
         doSyncNow(roll, pass, true);
       }
     } else if (d.captcha){
@@ -557,19 +491,8 @@ if ('serviceWorker' in navigator) {
 </html>'''
 
 
-BM_BOOKMARK = ("javascript:(function(){var s=document.createElement('script');"
-               "s.src='https://attendance-portal-uk21.vercel.app/bm.js';"
-               "document.body.appendChild(s);})();")
-
-BM_ADDRESS = ("(function(){var s=document.createElement('script');"
-              "s.src='https://attendance-portal-uk21.vercel.app/bm.js';"
-              "document.body.appendChild(s);})();")
-
-
 def app_page_html():
-    import json as _j
-    return (APP_HTML.replace('__BM_BOOKMARK__', _j.dumps(BM_BOOKMARK))
-                    .replace('__BM_ADDRESS__', _j.dumps(BM_ADDRESS)))
+    return APP_HTML
 
 
 def app_sync_json(username, password):
