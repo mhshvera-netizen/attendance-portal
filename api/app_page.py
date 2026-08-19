@@ -123,6 +123,21 @@ margin-bottom:8px;cursor:pointer}
        target="_blank" rel="noopener"
        style="text-align:center">&#128279; Open Official Portal (check directly while this page waits)</a>
 
+    <div id="captchaBox" style="display:none;margin-top:4px">
+      <div style="background:#FFF7ED;border:1.5px solid #FDBA74;border-radius:12px;padding:12px 14px;margin:10px 0">
+        <b style="color:#C2410C;font-size:13.5px">CAPTCHA unte mee attendance ikkada chudandi (2 options):</b>
+        <div style="margin-top:8px">
+          <button class="btn green" onclick="showEntry();" style="margin-top:0">&#9998; Option 1: Quick Entry (2 min, 100% works)</button>
+          <a class="btn" href="https://jntuaceastudents.classattendance.in/" target="_blank"
+             rel="noopener" style="margin-top:8px">&#128279; Option 2: Official Portal (direct)</a>
+        </div>
+        <p style="font-size:11.5px;color:#9A3412;margin-top:8px">
+          Option 1 lo: official portal lo numbers chusi, ikkada type chesthe
+          Overall % + Subject-wise % instant ga vastundi. Option 2 lo: official
+          portal lone mee attendance kanipistundi.</p>
+      </div>
+    </div>
+
     <div class="links">
       <a href="#" onclick="showEntry();return false;">&#9998; Quick Entry (always works)</a><br>
       <a href="/extension.zip" style="font-size:11.5px">&#129309; Chrome Extension (PC/kiwi lo test)</a>
@@ -250,8 +265,8 @@ function checkStatus(cb){
     if (d.open){
       setStatus('\uD83D\uDFE2 Portal is OPEN \u2014 auto-sync works (checked ' + now + ')', 'green');
     } else if (d.captcha){
-      setStatus('\uD83D\uDD34 Portal CAPTCHA is ON \u2014 page retries by itself every 45s '
-        + 'and syncs the moment it opens (checked ' + now + ')', 'red');
+      setStatus('\uD83D\uDD34 Portal CAPTCHA is ON right now \u2014 two instant options below '
+        + '(auto-retry also runs every 45s)', 'red');
     } else {
       setStatus('\u26AA Could not reach the portal (checked ' + now + ')', 'gray');
     }
@@ -307,6 +322,7 @@ function doSyncNow(roll, pass, quiet){
       if (d.error){
         if (d.error.indexOf('CAPTCHA') >= 0 || d.error.indexOf('verification') >= 0){
           msg('syncMsg','err', d.error);
+          document.getElementById('captchaBox').style.display = 'block';
           checkStatus();
           autoWait();
         } else {
