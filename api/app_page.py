@@ -119,6 +119,10 @@ margin-bottom:8px;cursor:pointer}
         syncs automatically. Your password is never stored on any server.</p>
     </div>
 
+    <a class="btn green" href="https://jntuaceastudents.classattendance.in/"
+       target="_blank" rel="noopener"
+       style="text-align:center">&#128279; Open Official Portal (check directly while this page waits)</a>
+
     <div class="links">
       <a href="#" onclick="showEntry();return false;">&#9998; Quick Entry (always works)</a>
       &nbsp;&middot;&nbsp;
