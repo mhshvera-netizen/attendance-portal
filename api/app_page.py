@@ -5,11 +5,11 @@
   2. SYNCING  - "Reading your semester" with progress
   3. DASHBOARD - OVERALL % + SUBJECT-WISE % + tap subject for log
 
-Automatic behaviour (user does nothing extra):
-  * saved credentials + portal open  -> syncs on page load
-  * portal CAPTCHA ON                -> the page re-tries by itself every
-    45 seconds; the moment the portal opens it syncs automatically.
-  * Quick Entry fallback             -> always works, 2 minutes
+Behaviour:
+  * saved credentials + portal open  -> syncs on page load (one attempt)
+  * portal CAPTCHA ON                -> no auto-retry; user taps
+    Paste & Calculate (100% works) or pastes the record manually.
+  * Browser Helper bookmarklet       -> dashboard inside the portal page.
 """
 
 try:
@@ -842,7 +842,7 @@ def app_page_html():
 def app_sync_json(username, password):
     """Server-side sync attempt. Returns a dict with 'error' or dashboard data."""
     if not HAS_SCRAPER:
-        return {'error': 'Auto-sync engine is not available right now. Use Quick Entry.'}
+        return {'error': 'Auto-sync engine is not available right now. Use Paste & Calculate below.'}
     try:
         import sys
         import os
@@ -853,13 +853,13 @@ def app_sync_json(username, password):
         msg = str(e)
         if 'no subjects' in msg.lower() or 'route' in msg.lower() or 'missing' in msg.lower():
             return {'error': 'Your login was ACCEPTED, but the portal copy we reached '
-                             'does not host the student pages. The page will keep retrying '
-                             'automatically - or use Quick Entry (always works).'}
+                             'does not host the student pages. Use Paste & Calculate '
+                             'below (always works).'}
         if 'CAPTCHA' in msg or 'Use https' in msg or 'verification' in msg:
             return {'error': 'CAPTCHA::The official portal CAPTCHA is ON right now. '
-                             'This page will retry by itself every 45 seconds and sync '
-                             'the moment the portal opens - you do not need to do anything. '
-                             'Or use Quick Entry (always works).'}
+                             'No auto-retry - tap Paste & Calculate below (100% works): '
+                             'portal lo attendance copy chesi app ki return aithe '
+                             'automatic ga vasthundi.'}
         if 'rejected' in msg.lower() or 'credential' in msg.lower():
             return {'error': 'Login failed: ' + msg[:160]}
         return {'error': 'Could not connect to the official portal. Try again in a minute.'}
