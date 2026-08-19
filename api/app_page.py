@@ -115,6 +115,20 @@ margin-bottom:8px;cursor:pointer}
       </p>
       <button class="btn" id="copyBtn" onclick="copyLoader()">&#128203; Copy Script</button>
       <div class="msg" id="copyMsg" style="display:none"></div>
+      <div id="step2Box" style="display:none;margin-top:12px">
+        <a class="btn green" href="https://jntuaceastudents.classattendance.in/"
+           target="_blank" rel="noopener">&#128279; Open Official Portal &rarr; (login cheyandi)</a>
+      </div>
+      <button class="btn" id="doneBtn" onclick="markDone()" style="background:#0a9e63;display:none;margin-top:8px">&#10003; Setup complete</button>
+      <div id="dailyBox" style="display:none;margin-top:14px;background:#E7F6EF;border:1px solid #BFE6CF;border-radius:12px;padding:12px 14px">
+        <b style="color:#046C4E">&#9989; Setup done!</b>
+        <p style="font-size:13px;color:#046C4E;margin:4px 0 0">
+          <b>Prati roju:</b> <a href="https://jntuaceastudents.classattendance.in/"
+          target="_blank" rel="noopener" style="color:#046C4E;font-weight:800">official portal</a> open
+          &rarr; login (CAPTCHA) &rarr; <b>Attendance bookmark</b> tap &rarr;
+          Reading your semester &rarr; Overall % + Subject-wise %!
+        </p>
+      </div>
       <textarea readonly id="loaderBox" style="margin-top:10px;min-height:0;height:64px;font-size:11px"
         onclick="this.select()">{{ loader }}</textarea>
       <div style="margin-top:12px">
@@ -229,13 +243,25 @@ function showTab(t){
 
 function copyLoader(){
   var txt = document.getElementById('loaderBox').value;
+  var after = function(){
+    document.getElementById('step2Box').style.display = '';
+    document.getElementById('doneBtn').style.display = '';
+    try { localStorage.setItem('jnt_route_copied', '1'); } catch(e){}
+    var m = document.getElementById('copyMsg');
+    m.className = 'msg ok';
+    m.textContent = 'Copied! Ippudu Step 2 (Open Official Portal) tap chesi login cheyandi.';
+  };
   if (navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(txt).then(function(){
-      var m = document.getElementById('copyMsg');
-      m.className = 'msg ok';
-      m.textContent = 'Copied! Now: Open Portal -> login -> bookmark create -> Edit URL -> paste -> Save.';
-    }).catch(function(){ selectLoader(); });
-  } else { selectLoader(); }
+    navigator.clipboard.writeText(txt).then(after).catch(function(){ selectLoader(); after(); });
+  } else { selectLoader(); after(); }
+}
+
+function markDone(){
+  try { localStorage.setItem('jnt_route_done', '1'); } catch(e){}
+  document.getElementById('dailyBox').style.display = '';
+  var m = document.getElementById('copyMsg');
+  m.className = 'msg ok';
+  m.textContent = 'Setup saved on this device. Prati roju flow kinda green box lo undi!';
 }
 function selectLoader(){
   var b = document.getElementById('loaderBox');
@@ -514,6 +540,17 @@ function toggleAutoWait(){
 }
 
 checkStatus();
+
+// restore Portal Route setup progress
+try {
+  if (localStorage.getItem('jnt_route_copied') === '1'){
+    document.getElementById('step2Box').style.display = '';
+    document.getElementById('doneBtn').style.display = '';
+  }
+  if (localStorage.getItem('jnt_route_done') === '1'){
+    document.getElementById('dailyBox').style.display = '';
+  }
+} catch(e){}
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(function(){});
