@@ -124,7 +124,8 @@ margin-bottom:8px;cursor:pointer}
        style="text-align:center">&#128279; Open Official Portal (check directly while this page waits)</a>
 
     <div class="links">
-      <a href="#" onclick="showEntry();return false;">&#9998; Quick Entry (always works)</a>
+      <a href="#" onclick="showEntry();return false;">&#9998; Quick Entry (always works)</a><br>
+      <a href="/extension.zip" style="font-size:11.5px">&#129309; Chrome Extension (PC/kiwi lo test)</a>
       &nbsp;&middot;&nbsp;
       <a href="/downloads/app.apk">&#128241; Android App</a>
     </div>
