@@ -283,7 +283,13 @@ function doSyncNow(roll, pass){
       var rows = (d.subjects||[]).map(function(s){
         return {name:s.Subject, total:s.total, present:s.present, rows:s.rows||[]};
       });
-      renderDash(d.name||roll, roll, rows, (d.subjects||[]).map(function(s){return s.rows||[];}));
+      renderDash(d.name||roll, roll + (d.cls?' : '+d.cls:''), rows, (d.subjects||[]).map(function(s){return s.rows||[];}));
+      if (d.diag && d.diag.length){
+        var dmsg = document.createElement('div');
+        dmsg.style.cssText = 'font-size:11.5px;color:#B45309;background:#FEF3C7;border:1px solid #FDE68A;border-radius:10px;padding:10px 12px;margin-top:14px;white-space:pre-wrap';
+        dmsg.textContent = 'Some subjects returned no data:\n' + d.diag.join('\n') + '\n\nRefresh try cheyandi - portal session ok aite anni vastayi.';
+        document.getElementById('subjList').appendChild(dmsg);
+      }
       showTab('dash');
     })
     .catch(function(e){
@@ -481,8 +487,11 @@ def app_sync_json(username, password):
         })
     details = data.get('details') or {}
     name = ''
+    cls = details.get('classname') or details.get('Class') or ''
+    acy = details.get('acad_year') or ''
     for k, v in details.items():
         if 'name' in k.lower() and v:
             name = str(v).strip()
             break
-    return {'name': name or username, 'subjects': out}
+    return {'name': name or username, 'subjects': out,
+            'diag': data.get('diag', []), 'cls': cls, 'acy': acy}
