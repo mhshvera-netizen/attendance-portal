@@ -123,26 +123,50 @@ margin-bottom:8px;cursor:pointer}
        target="_blank" rel="noopener"
        style="text-align:center">&#128279; Open Official Portal (check directly while this page waits)</a>
 
+    <button class="btn green" onclick="showEntry();"
+      style="margin-top:10px">&#128203; Paste &amp; Calculate &mdash; works even WITHOUT server (tap here)</button>
+
     <div id="captchaBox" style="display:none;margin-top:4px">
       <div style="background:#FFF7ED;border:1.5px solid #FDBA74;border-radius:12px;padding:12px 14px;margin:10px 0">
         <b style="color:#C2410C;font-size:13.5px">CAPTCHA unte mee attendance ikkada chudandi (2 options):</b>
         <div style="margin-top:8px">
-          <button class="btn green" onclick="showEntry();" style="margin-top:0">&#9998; Option 1: Quick Entry (2 min, 100% works)</button>
+          <button class="btn green" onclick="showEntry();" style="margin-top:0">&#128203; Option 1: Paste &amp; Calculate (1 min, 100% works)</button>
           <a class="btn" href="https://jntuaceastudents.classattendance.in/" target="_blank"
              rel="noopener" style="margin-top:8px">&#128279; Option 2: Official Portal (direct)</a>
         </div>
         <p style="font-size:11.5px;color:#9A3412;margin-top:8px">
-          Option 1 lo: official portal lo numbers chusi, ikkada type chesthe
-          Overall % + Subject-wise % instant ga vastundi. Option 2 lo: official
-          portal lone mee attendance kanipistundi.</p>
+          Option 1 lo: official portal lo attendance page open chesi COPY chesi,
+          ikkada PASTE cheste (or type) &mdash; Overall % + Subject-wise %
+          instant ga vastundi. Option 2 lo: official portal lone mee attendance
+          kanipistundi.</p>
       </div>
     </div>
 
     <div class="links">
-      <a href="#" onclick="showEntry();return false;">&#9998; Quick Entry (always works)</a><br>
+      <a href="#" onclick="showEntry();return false;">&#128203; Paste &amp; Calculate (always works)</a><br>
       <a href="/extension.zip" style="font-size:11.5px">&#129309; Chrome Extension (PC/kiwi lo test)</a>
       &nbsp;&middot;&nbsp;
       <a href="/downloads/app.apk">&#128241; Android App</a>
+    </div>
+
+    <!-- ===== BOOKMARKLET ===== -->
+    <div class="card" id="bmCard" style="margin-top:6px">
+      <div style="font-size:11px;font-weight:800;color:var(--muted);letter-spacing:.4px">
+        &#128279; BROWSER HELPER (bookmarklet) &mdash; web lo APK la &mdash; 100% in YOUR browser
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin:6px 0 8px">
+        Portal lo login ayyaka oka tap &mdash; attendance scrap ayi dashboard vasthundi.
+        Server avasaram ledu. <b style="color:var(--ink)">Setup:</b></p>
+      <ol style="font-size:12px;color:var(--ink);margin:0 0 10px 18px;padding:0;line-height:1.7">
+        <li>Phone lo <b>official portal</b> open cheyandi &rarr; login ayyi undandi</li>
+        <li>Browser menu &rarr; <b>Add bookmark</b> &rarr; URL lo <b>Edit</b> lo velli code paste cheyandi (kinda)</li>
+        <li>Login ayyaka portal lo unnapudu aa bookmark tap cheyandi &rarr; dashboard vastundi</li>
+        <li>Dashboard lo <b>Open in App</b> button &rarr; ikkada auto-fill + auto-calculate</li>
+      </ol>
+      <button class="btn green" onclick="copyBM();" style="margin-top:0">&#128203; Copy Bookmarklet Code</button>
+      <textarea id="bmCode" readonly style="min-height:56px;font-size:11px;margin-top:8px;background:#f4f7fb"></textarea>
+      <p style="font-size:11px;color:var(--muted);margin-top:6px">
+        PC lo: koncham easier &mdash; danlo bookmark ki right-click &rarr; Edit &rarr; URL replace cheyandi.</p>
     </div>
   </div>
 
@@ -157,13 +181,36 @@ margin-bottom:8px;cursor:pointer}
       <input id="entryRoll" placeholder="e.g. 23001A0204">
       <label>YOUR NAME</label>
       <input id="entryName" placeholder="e.g. Sai Kumar">
-      <label>SUBJECTS - ONE PER LINE (Present/Total)</label>
-      <textarea id="entrySubs" placeholder="Power Electronics 6/9&#10;Management Science 6/8&#10;Electrical Distribution 10/12"></textarea>
-      <button class="btn green" onclick="doEntry()">Show My Attendance</button>
-      <div class="msg" id="entryMsg"></div>
-      <p style="font-size:11.5px;color:var(--muted);margin-top:10px">
-        Open the official portal on your phone, read each subject's
-        Present/Total numbers, type them here. Saved on this device.</p>
+
+      <!-- ===== PASTE & CALCULATE (new) ===== -->
+      <div style="margin-top:16px;border-top:1px dashed var(--line);padding-top:14px">
+        <div style="font-size:11px;font-weight:800;color:var(--muted);letter-spacing:.4px">
+          &#128203; PASTE RECORD FROM PORTAL &nbsp;<span style="color:var(--green)">(fast - no typing)</span>
+        </div>
+        <textarea id="pasteBox" style="min-height:130px"
+          placeholder="Portal lo attendance page open chesi -> Select All (Ctrl+A / long-press) -> Copy -> ikkada paste cheyandi (Ctrl+V).&#10;&#10;Example:&#10;POWER ELECTRONICS&#10;01-02-2026 09:30 AM P&#10;02-02-2026 09:30 AM A&#10;Total: 9  Present: 6  Absent: 3"></textarea>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn green" onclick="doPasteParse()" style="flex:1;margin-top:0">&#128269; Parse Paste</button>
+          <button class="btn" onclick="fillSample()" style="flex:0 0 auto;margin-top:0;background:var(--muted);padding:13px 16px">Sample</button>
+        </div>
+        <button class="btn" onclick="clipboardPaste();" style="margin-top:8px;background:#0f766e">&#128203; Auto-Paste from Clipboard (copy ayyaka ikkada oka tap)</button>
+        <div class="msg" id="pasteMsg"></div>
+        <p style="font-size:11.5px;color:var(--muted);margin-top:8px">
+          Portal lo copy chesi app tab ki return ayithee <b>automatic ga detect</b> avutundi too!
+          Any format works &mdash; subject name line + numbers like <b>6/9</b>, or
+          <b>Total 9 Present 6</b>, or a <b>date + P/A</b> list. App counts automatically.</p>
+      </div>
+
+      <!-- ===== MANUAL LIST (auto-filled by paste) ===== -->
+      <div style="margin-top:16px;border-top:1px dashed var(--line);padding-top:14px">
+        <label style="margin-top:0">SUBJECTS - ONE PER LINE (Present/Total) <span style="color:var(--green)">auto-filled by Paste</span></label>
+        <textarea id="entrySubs" placeholder="Power Electronics 6/9&#10;Management Science 6/8&#10;Electrical Distribution 10/12"></textarea>
+        <button class="btn green" onclick="doEntry()">Show My Attendance</button>
+        <div class="msg" id="entryMsg"></div>
+        <p style="font-size:11.5px;color:var(--muted);margin-top:10px">
+          Paste chesaka list automatic ga fill avutundi &mdash; oka saari chusi,
+          edaina miss ayite add/edit chesi <b>Show My Attendance</b> nokkandi.</p>
+      </div>
     </div>
   </div>
 
@@ -257,39 +304,21 @@ function setStatus(txt, cls){
   b.className = 'status ' + cls;
 }
 
-var AUTO = {timer: null};
-
 function checkStatus(cb){
   fetch('/app/status').then(function(r){ return r.json(); }).then(function(d){
     var now = new Date().toLocaleTimeString();
     if (d.open){
-      setStatus('\uD83D\uDFE2 Portal is OPEN \u2014 auto-sync works (checked ' + now + ')', 'green');
+      setStatus('\uD83D\uDFE2 Portal is OPEN \u2014 tap Check Attendance to sync (checked ' + now + ')', 'green');
     } else if (d.captcha){
-      setStatus('\uD83D\uDD34 Portal CAPTCHA is ON right now \u2014 two instant options below '
-        + '(auto-retry also runs every 45s)', 'red');
+      setStatus('\uD83D\uDD34 Portal CAPTCHA is ON right now \u2014 two instant options below', 'red');
     } else {
       setStatus('\u26AA Could not reach the portal (checked ' + now + ')', 'gray');
     }
     if (cb) cb(d);
   }).catch(function(){
-    setStatus('\u26AA Could not reach the portal.', 'gray');
+    setStatus('\u26AA Could not reach the portal \u2014 but Paste & Calculate works even without server \u2193', 'gray');
     if (cb) cb({open:false});
   });
-}
-
-function autoWait(){
-  if (AUTO.timer) clearInterval(AUTO.timer);
-  AUTO.timer = setInterval(function(){
-    checkStatus(function(d){
-      if (d.open){
-        clearInterval(AUTO.timer);
-        AUTO.timer = null;
-        var roll = document.getElementById('syncRoll').value.trim().toUpperCase();
-        var pass = document.getElementById('syncPass').value;
-        if (roll.length >= 5 && pass){ doSyncNow(roll, pass, true); }
-      }
-    });
-  }, 45000);
 }
 
 function doSync(){
@@ -324,7 +353,6 @@ function doSyncNow(roll, pass, quiet){
           msg('syncMsg','err', d.error);
           document.getElementById('captchaBox').style.display = 'block';
           checkStatus();
-          autoWait();
         } else {
           showLogin();
           msg('syncMsg','err', d.error);
@@ -349,7 +377,7 @@ function doSyncNow(roll, pass, quiet){
       btn.disabled = false; btn.textContent = 'Check Attendance \u2192';
       stopSync();
       showLogin();
-      msg('syncMsg','err','Could not connect. Please try again.');
+      msg('syncMsg','err','Could not connect. Please try again. (Tip: server needs to run on Vercel \u2014 or use Paste & Calculate below, it works offline.)');
     });
 }
 
@@ -403,6 +431,300 @@ function doEntry(){
   } catch(e){}
   renderDash(name, roll + ' : B.Tech (JNTUACEA)', rows, []);
   showDash();
+}
+
+/* ============================================================
+   PASTE & CALCULATE — parse copied portal record text
+   Handles:  "Subject 6/9",  "Total 9 Present 6 Absent 3",
+             "Subject 9 6",  date + P/A lists, tables, etc.
+   ============================================================ */
+
+function stripJunk(s){
+  return s.replace(/\b\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}\b/g,' ')      // dates
+    .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\s*(?:am|pm)?\b/gi,' ')          // times
+    .replace(/\b(s\.?no\.?|sl\.?no\.?|sno|date|day|status|attendance|period|session|time|lecture|class|subject|log|total|tot|present|absent|percentage|per\s*cent|attended|missed|att|skip|keep|attending|more|semester|sem)\b/gi,' ')
+    .replace(/\b[PA]\b/g,' ')                                              // status tokens P / A
+    .replace(/[()\[\]{};,:"'|]+/g,' ')
+    .replace(/\s+/g,' ').trim();
+}
+function grabNum(text, re){
+  var m = text.match(re);
+  return m ? parseInt(m[1],10) : null;
+}
+function isHeaderLine(ln){
+  if (/(absent|present|attended|missed)/i.test(ln)) return false;  // status rows are not headers
+  if (/[0-9:]/.test(ln)) return false;                              // dates/times/S.No rows are not headers
+  var s = stripJunk(ln);
+  if (!s || s.length < 2 || s.length > 70) return false;
+  if (/^(total|present|absent|percentage|per\s*cent)/i.test(ln.trim())) return false;
+  return true;
+}
+function splitBlocks(text){
+  var lines = text.split(/\r?\n/).map(function(l){ return l.trim(); });
+  var blocks = [], cur = [];
+  function flush(){ if (cur.length){ blocks.push(cur.join('\n')); cur = []; } }
+  lines.forEach(function(ln){
+    if (!ln){ flush(); return; }
+    if (isHeaderLine(ln)){ flush(); }
+    cur.push(ln);
+  });
+  flush();
+  return blocks;
+}
+function pickName(lines){
+  for (var i=0;i<lines.length;i++){
+    var s = stripJunk(lines[i]).replace(/\d{1,3}(?:\.\d+)?\s*%/g,' ').replace(/\s*\d{1,3}\s*$/,'');
+    if (s.length >= 2 && /[A-Za-z]/.test(s) && !/^(total|present|absent|percentage)/i.test(s)) return s;
+  }
+  var fb = stripJunk(lines[0]).replace(/\d{1,3}(?:\.\d+)?\s*%/g,' ').replace(/\s*\d{1,3}\s*$/,'');
+  return (/total|present|absent|percentage/i.test(fb) || !/[A-Za-z]/.test(fb)) ? 'Subject' : (fb || 'Subject');
+}
+function countPA(text){
+  var P = 0, A = 0;
+  text.split(/[^A-Za-z]+/).forEach(function(t){
+    if (t === 'P') P++;
+    else if (t === 'A') A++;
+    else if (/^PRESENT$/i.test(t) || /^ATTENDED$/i.test(t)) P++;
+    else if (/^ABSENT$/i.test(t) || /^MISSED$/i.test(t)) A++;
+  });
+  return [P, A];
+}
+function nameBeforeTotals(text){
+  var t = text.split(/\b(?:total|tot)\b/i)[0];
+  t = t.replace(/\d{1,3}(?:\.\d+)?\s*%/g,' ');
+  t = t.replace(/\s*(?:skip\s+\d+\s+class(?:es)?|attend\s+\d+\s+more|keep\s+attending)\s*$/i,' ');
+  t = stripJunk(t).replace(/(?:\s+\d{1,3})+\s*$/,' ').trim();
+  return t.length >= 2 ? t : null;
+}
+function parseBlock(text){
+  var lines = text.split('\n');
+  var am = text.match(/(\d{1,3})\s+attended\b[\s\S]{0,40}\b(\d{1,3})\s+missed\b/i);
+  var amRev = null;
+  if (!am) amRev = text.match(/(\d{1,3})\s+missed\b[\s\S]{0,40}\b(\d{1,3})\s+attended\b/i);
+  if (am){
+    var apr = +am[1], ami = +am[2];
+    return {name: pickName(lines), present: apr, total: apr + ami};
+  }
+  if (amRev){
+    var apr2 = +amRev[2], ami2 = +amRev[1];
+    return {name: pickName(lines), present: apr2, total: apr2 + ami2};
+  }
+  var tp = text.match(/(?:total|tot)\s*[=:]?\s*(\d{1,3})[\s,;]{1,12}(?:present|att|attended)\s*[=:]?\s*(\d{1,3})/i);
+  var tp2 = text.match(/(?:present|att|attended)\s*[=:]?\s*(\d{1,3})[\s,;]{1,12}(?:total|tot)\s*[=:]?\s*(\d{1,3})/i);
+  if (tp && +tp[2] <= +tp[1] && +tp[1] <= 600){
+    return {name: nameBeforeTotals(text) || pickName(lines), present: +tp[2], total: +tp[1]};
+  }
+  if (tp2 && +tp2[1] <= +tp2[2] && +tp2[2] <= 600){
+    return {name: nameBeforeTotals(text) || pickName(lines), present: +tp2[1], total: +tp2[2]};
+  }
+  var pa = countPA(text);
+  if (pa[0] + pa[1] >= 2){
+    return {name: pickName(lines), present: pa[0], total: pa[0] + pa[1]};
+  }
+  var m = text.match(/(\d{1,3})\s*\/\s*(\d{1,3})/);
+  if (m){
+    var pr = +m[1], tt = +m[2];
+    if (pr <= tt && tt <= 600){
+      var nm = stripJunk(text.replace(/\d{1,3}\s*\/\s*\d{1,3}/,' '));
+      if (nm.length >= 2) return {name: nm, present: pr, total: tt};
+    }
+  }
+  if (/total|present|absent|\//i.test(text)){
+    var nums = text.match(/\d{1,3}/g);
+    if (nums && nums.length >= 2){
+      var lastN = +nums[nums.length-1], prevN = +nums[nums.length-2];
+      if (prevN <= lastN && lastN <= 600){            // "name  6  9" (present total)
+        return {name: pickName(lines), present: prevN, total: lastN};
+      }
+      var tt2 = +nums[nums.length-2], pr2 = +nums[nums.length-1];
+      if (pr2 <= tt2 && tt2 <= 600 && tt2 >= 1){      // "name  9  6" (total present)
+        return {name: pickName(lines), present: pr2, total: tt2};
+      }
+    }
+  }
+  return null;
+}
+function parseTableMode(text){
+  var out = [];
+  text.split(/\r?\n/).forEach(function(ln0){
+    var ln = ln0.trim();
+    if (!ln) return;
+    // "Subject ... Tot 11 Att 9 ..." style line (dashboard copy)
+    var mm = ln.match(/^(.{2,90}?)\s+(?:total|tot)\s*[=:]?\s*(\d{1,3})[\s,;]+(?:present|att|attended)\s*[=:]?\s*(\d{1,3})\b/i);
+    if (mm && +mm[3] <= +mm[2] && +mm[2] <= 600){
+      out.push({name: nameBeforeTotals(ln) || mm[1].trim(), present: +mm[3], total: +mm[2]});
+      return;
+    }
+    var name = null, nums = [];
+    if (ln.indexOf('\t') >= 0 || /\s{2,}/.test(ln)){
+      var cells = ln.split(/\t+|\s{2,}/).map(function(c){ return c.trim(); }).filter(Boolean);
+      if (!cells.length) return;
+      var c0 = cells[0];
+      if (/^\d|total|present|absent|percentage|status|date|subject|s\.?no/i.test(c0)) return;
+      var tI = -1, pI = -1;
+      for (var k=1;k<cells.length;k++){
+        if (/^(total|tot)$/i.test(cells[k]) && tI < 0) tI = k;
+        else if (/^(present|att|attended)$/i.test(cells[k]) && pI < 0) pI = k;
+      }
+      if (tI >= 0 && pI >= 0 && tI < cells.length-1 && pI < cells.length-1){
+        var tt = parseInt(cells[tI+1],10), pr = parseInt(cells[pI+1],10);
+        if (!isNaN(tt) && !isNaN(pr) && pr <= tt && tt <= 600){
+          out.push({name: nameBeforeTotals(ln) || c0, present: pr, total: tt});
+          return;
+        }
+      }
+      name = c0;
+      for (var j=1;j<cells.length;j++){
+        var n = parseInt(cells[j],10);
+        if (!isNaN(n)) nums.push(n);
+      }
+    } else {
+      var m = ln.match(/^([A-Za-z][A-Za-z0-9 .&(),'-]{2,60}?)\s+(\d{1,3})\s+(\d{1,3})\s*$/);
+      if (m){ name = m[1].trim(); nums = [+m[2], +m[3]]; }
+    }
+    if (!name || nums.length !== 2) return;
+    var a = nums[0], b = nums[1];
+    if (a <= b && b <= 600 && b >= 1) out.push({name:name, present:a, total:b});
+    else if (b <= a && a <= 600 && a >= 1) out.push({name:name, present:b, total:a});
+  });
+  return out;
+}
+function dedupeRows(rows){
+  var out = [];
+  rows.forEach(function(r){
+    var last = out[out.length-1];
+    if (last && last.name.toLowerCase() === r.name.toLowerCase()){
+      last.total += r.total; last.present += r.present;
+    } else out.push(r);
+  });
+  return out;
+}
+function parseManualLines(text){
+  var out = [];
+  text.split(/\r?\n/).forEach(function(line){
+    line = line.trim();
+    if (!line) return;
+    var m = line.match(/^(.{2,80}?)\s*(\d{1,3})\s*\/\s*(\d{1,3})\s*$/);
+    if (!m) return;
+    var pr = +m[2], tt = +m[3];
+    if (pr > tt || tt > 600) return;
+    var nm = stripJunk(m[1]);
+    if (nm.length < 2 || !/[A-Za-z]/.test(nm)) return;
+    out.push({name: nm, present: pr, total: tt});
+  });
+  return out;
+}
+function parseRecord(text){
+  var tableRows = parseTableMode(text);
+  if (tableRows.length >= 1) return tableRows;
+
+  var blockRows = [];
+  splitBlocks(text).forEach(function(b){
+    var r = parseBlock(b);
+    if (r) blockRows.push(r);
+  });
+  blockRows = dedupeRows(blockRows);
+
+  var lineRows = parseManualLines(text);
+  if (lineRows.length >= 2 && lineRows.length >= blockRows.length) return lineRows;
+  return blockRows;
+}
+function doPasteParse(){
+  var raw = document.getElementById('pasteBox').value;
+  var rows = parseRecord(raw);
+  var m = document.getElementById('pasteMsg');
+  if (!rows.length){
+    m.className = 'msg err';
+    m.textContent = 'Paste lo attendance numbers kanipinchaledu. Confirm: (1) subject name line undali, (2) numbers "6/9" or "Total 9 Present 6" la undali, or (3) date + P/A list undali. Sample button tho try cheyandi.';
+    return;
+  }
+  var lines = rows.map(function(r){ return r.name + ' ' + r.present + '/' + r.total; });
+  document.getElementById('entrySubs').value = lines.join('\n');
+  m.className = 'msg ok';
+  m.textContent = '\u2705 ' + rows.length + ' subject(s) detected from paste! List below lo fill ayyindi \u2014 oka saari chusi (edaina miss ayite add/edit chesi) "Show My Attendance" nokkandi.';
+  try {
+    localStorage.setItem('jnt_esubs', lines.join('\n'));
+  } catch(e){}
+}
+function fillSample(){
+  document.getElementById('pasteBox').value =
+'Power System Operation and Control\nAttendance log : 9 attended, 2 missed\n30-06-2026  1:45 PM - 2:45 PM  Absent\n06-07-2026  10:30 AM - 11:30 AM  Absent\n07-07-2026  1:45 PM - 2:45 PM  Present\n08-07-2026  10:30 AM - 11:30 AM  Present\n13-07-2026  10:30 AM - 11:30 AM  Present\n14-07-2026  1:45 PM - 2:45 PM  Present\n15-07-2026  10:30 AM - 11:30 AM  Present\n20-07-2026  10:30 AM - 11:30 AM  Present\n21-07-2026  1:45 PM - 2:45 PM  Present\n22-07-2026  10:30 AM - 11:30 AM  Present\n\nManagement Science\nTotal 8  Present 6  Absent 2\n\nElectric Vehicle Technology\n05-08-2026  Present\n06-08-2026  Absent\n07-08-2026  Present\n08-08-2026  Present\n09-08-2026  Absent\n10-08-2026  Present\n11-08-2026  Present\n12-08-2026  Absent\n13-08-2026  Present\n14-08-2026  Present\n15-08-2026  Present\n16-08-2026  Absent\n17-08-2026  Present\n18-08-2026  Present\n19-08-2026  Absent\n20-08-2026  Present\nTotal 16  Present 11  Absent 5';
+  doPasteParse();
+}
+
+var BM_CODE = (function(){
+  // Build the bookmarklet from THIS page's own URL, so it works from any host.
+  var u = location.href.split('#')[0].split('?')[0];
+  var dir = u.substring(0, u.lastIndexOf('/') + 1);   // folder of this page
+  return "javascript:(function(){window.__jnApp='" + u + "';var s=document.createElement('script');s.src='" + dir + "bm.js';s.onload=function(){window.__jnBM&&console.log('JNTUACEA helper ready')};document.body.appendChild(s)})();";
+})();
+function copyBM(){
+  document.getElementById('bmCode').value = BM_CODE;
+  var t = document.getElementById('bmCode');
+  t.select();
+  try { document.execCommand('copy'); } catch(e){}
+  try { navigator.clipboard.writeText(BM_CODE); } catch(e){}
+  var b = document.querySelector('#bmCard .btn.green');
+  b.textContent = 'Copied! Add as bookmark now';
+  setTimeout(function(){ b.textContent = '\uD83D\uDCCB Copy Bookmarklet Code'; }, 2500);
+}
+(function(){ document.getElementById('bmCode').value = BM_CODE; })();
+
+function clipboardPaste(){
+  if (!navigator.clipboard || !navigator.clipboard.readText){
+    msg('pasteMsg','err','This browser does not support clipboard read. Please paste manually.');
+    return;
+  }
+  navigator.clipboard.readText().then(function(txt){
+    if (!txt || !txt.trim()){ msg('pasteMsg','err','Clipboard lo emi ledu. Portal lo attendance copy chesi malli try cheyandi.'); return; }
+    var rows = parseRecord(txt);
+    if (!rows.length){ msg('pasteMsg','err','Clipboard lo attendance format kanipinchaledu. Manual ga paste cheyandi.'); return; }
+    document.getElementById('pasteBox').value = txt;
+    doPasteParse();
+  }).catch(function(){
+    msg('pasteMsg','err','Clipboard read avvaledu (browser permission). Manual ga paste cheyandi.');
+  });
+}
+function tryAutoClipboard(){
+  // Student portal lo copy chesi app tab ki return ayyinappudu auto-detect
+  try {
+    if (!navigator.clipboard || !navigator.clipboard.readText) return;
+    navigator.clipboard.readText().then(function(txt){
+      if (!txt || !txt.trim()) return;
+      var pb = document.getElementById('pasteBox');
+      if (pb.value && pb.value.trim()) return;
+      if (!/(\d{1,3}\s*\/\s*\d{1,3})|present|absent|attended|missed|total|percentage/i.test(txt)) return;
+      var rows = parseRecord(txt);
+      if (!rows.length) return;
+      pb.value = txt;
+      doPasteParse();
+    }).catch(function(){});
+  } catch(e){}
+}
+if (typeof window.addEventListener === 'function'){
+  window.addEventListener('focus', function(){ setTimeout(tryAutoClipboard, 500); });
+}
+
+// Read bookmarklet data from URL hash:  #d=roll|name|line1\nline2...
+function readHashData(){
+  try {
+    var h = location.hash;
+    if (!h || h.indexOf('#d=') !== 0) return false;
+    var raw = decodeURIComponent(h.substring(3));
+    var bar1 = raw.indexOf('|');
+    var bar2 = raw.indexOf('|', bar1 + 1);
+    if (bar1 < 0 || bar2 < 0) return false;
+    var roll = raw.substring(0, bar1);
+    var name = raw.substring(bar1 + 1, bar2);
+    var lines = raw.substring(bar2 + 1);
+    if (!roll || !lines) return false;
+    document.getElementById('entryRoll').value = roll;
+    document.getElementById('entryName').value = name;
+    document.getElementById('entrySubs').value = lines;
+    doEntry();
+    try { history.replaceState(null, '', location.pathname); } catch(e){}
+    return true;
+  } catch(e){ return false; }
 }
 
 function renderDash(name, roll, rows, rowsBySubj){
@@ -491,6 +813,7 @@ function filterSubs(){
     if (roll){ document.getElementById('syncRoll').value = roll; }
     if (pass){ document.getElementById('syncPass').value = pass; }
   } catch(e){}
+  if (readHashData()) return;   // bookmarklet opened us with data → dashboard direct
   checkStatus(function(d){
     if (d.open){
       var roll = document.getElementById('syncRoll').value.trim().toUpperCase();
@@ -499,7 +822,7 @@ function filterSubs(){
         doSyncNow(roll, pass, true);
       }
     } else if (d.captcha){
-      autoWait();
+      document.getElementById('captchaBox').style.display = 'block';
     }
   });
 })();
