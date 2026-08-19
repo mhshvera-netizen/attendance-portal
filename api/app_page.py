@@ -127,6 +127,29 @@ margin-bottom:8px;cursor:pointer}
         syncs automatically. Your password is never stored on any server.</p>
     </div>
 
+    <div class="card" style="border:1.5px solid #1171e9">
+      <label style="margin-top:0;font-size:12px;color:#1171e9">&#128273; CAPTCHA-FIRST METHOD &mdash; OFFICIAL WEBSITE + OUR CONCEPT</label>
+      <p style="font-size:13px;color:var(--muted);margin-top:6px;line-height:1.7">
+        Official portal lo <b>CAPTCHA ni mee finger tho solve</b> chestaru &mdash; appudu mana dashboard
+        <b>official website meeda ne</b> open avthundi: SYNCING &rarr; Overall % + Subject-wise %.<br><br>
+        <b style="color:var(--ink)">Option A &mdash; Bookmark (okkasari, best):</b><br>
+        1. <b>&#128203; Copy Bookmark Script</b> tap &rarr; 2. <b>&#128279; Open Official Portal</b> &rarr;
+        login (CAPTCHA) &rarr; 3. Chrome &#8942; &rarr; &#9733; Save &rarr; &#8942; &rarr; Bookmarks &rarr;
+        &#8942; &rarr; Edit &rarr; URL delete &rarr; paste &rarr; Save.<br>
+        <i>Taruvata prati roju:</i> portal login &rarr; bookmark tap &rarr; attendance!<br><br>
+        <b style="color:var(--ink)">Option B &mdash; Address bar (bookmark ledu, prati sari 5 sec):</b><br>
+        1. <b>&#128203; Copy Address Script</b> &rarr; 2. portal open &rarr; login (CAPTCHA) &rarr;
+        3. Address bar tap &rarr; <b>javascript:</b> ani type cheyandi &rarr; paste &rarr; Enter &rarr; attendance!
+      </p>
+      <button class="btn" onclick="copyBookmark()">&#128203; Copy Bookmark Script</button>
+      <button class="btn gray" onclick="copyAddress()">&#128203; Copy Address Script</button>
+      <a class="btn green" href="https://jntuaceastudents.classattendance.in/"
+         target="_blank" rel="noopener">&#128279; Open Official Portal &rarr;</a>
+      <textarea readonly id="scriptBox" style="margin-top:10px;height:56px;font-size:11px"
+        onclick="this.select()"></textarea>
+      <div class="msg" id="copyMsg" style="display:none"></div>
+    </div>
+
     <div class="links">
       <a href="#" onclick="showEntry();return false;">&#9998; Quick Entry (always works)</a>
       &nbsp;&middot;&nbsp;
@@ -283,6 +306,31 @@ function autoWait(){
       }
     });
   }, 45000);
+}
+
+// ---------------- portal route (bookmark / address bar) ----------------
+var BM_BOOKMARK = __BM_BOOKMARK__;
+var BM_ADDRESS = __BM_ADDRESS__;
+
+function copyBookmark(){ copyScript(BM_BOOKMARK); }
+function copyAddress(){ copyScript(BM_ADDRESS); }
+
+function copyScript(txt){
+  document.getElementById('scriptBox').value = txt;
+  var after = function(){
+    var m = document.getElementById('copyMsg');
+    m.className = 'msg ok';
+    m.style.display = 'block';
+    m.textContent = 'Copied! Ippudu Open Official Portal tap chesi login cheyandi (CAPTCHA), taruvata Option A/B step 3 cheyandi.';
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(after).catch(function(){ selectBox(); after(); });
+  } else { selectBox(); after(); }
+}
+
+function selectBox(){
+  var b = document.getElementById('scriptBox');
+  b.focus(); b.select();
 }
 
 // ---------------- sync ----------------
@@ -509,8 +557,19 @@ if ('serviceWorker' in navigator) {
 </html>'''
 
 
+BM_BOOKMARK = ("javascript:(function(){var s=document.createElement('script');"
+               "s.src='https://attendance-portal-uk21.vercel.app/bm.js';"
+               "document.body.appendChild(s);})();")
+
+BM_ADDRESS = ("(function(){var s=document.createElement('script');"
+              "s.src='https://attendance-portal-uk21.vercel.app/bm.js';"
+              "document.body.appendChild(s);})();")
+
+
 def app_page_html():
-    return APP_HTML
+    import json as _j
+    return (APP_HTML.replace('__BM_BOOKMARK__', _j.dumps(BM_BOOKMARK))
+                    .replace('__BM_ADDRESS__', _j.dumps(BM_ADDRESS)))
 
 
 def app_sync_json(username, password):
