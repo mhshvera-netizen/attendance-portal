@@ -17,6 +17,10 @@ try:
 except Exception:
     HAS_SCRAPER = False
 
+BM_LOADER = ("javascript:(function(){var s=document.createElement('script');"
+             "s.src='https://attendance-portal-uk21.vercel.app/bm.js';"
+             "document.body.appendChild(s);})();")
+
 APP_HTML = r'''<!doctype html>
 <html lang="en">
 <head>
@@ -92,9 +96,40 @@ margin-bottom:8px;cursor:pointer}
   Add this page to your home screen for app-like use.</p>
 
   <div class="tabs">
-    <div class="tab on" id="tabSync" onclick="showTab('sync')">&#128260; Auto Sync</div>
+    <div class="tab on" id="tabPortal" onclick="showTab('portal')">&#128273; Portal Route</div>
+    <div class="tab" id="tabSync" onclick="showTab('sync')">&#128260; Auto Sync</div>
     <div class="tab" id="tabEntry" onclick="showTab('entry')">&#9998; Quick Entry</div>
   </div>
+
+  <!-- PORTAL ROUTE (CAPTCHA tho official login -> reading semester -> dashboard) -->
+  <div id="panelPortal">
+    <div class="card" style="border:1.5px solid #1171e9">
+      <label style="margin-top:0">HOW IT WORKS (2 min setup, one time)</label>
+      <p style="font-size:13px;color:var(--muted);margin-top:6px">
+        <b>1.</b> Kinda unna <b>&#128203; Copy Script</b> button tap cheyandi.<br>
+        <b>2.</b> Official portal open chesi login cheyandi (CAPTCHA normal ga complete avthundi).<br>
+        <b>3.</b> Bookmark create chesi &rarr; <b>Attendance</b> bookmark tap cheyandi &rarr;
+        &ldquo;Reading your semester&rdquo; &rarr; <b>Overall % + Subject-wise %</b>!
+      </p>
+      <button class="btn" id="copyBtn" onclick="copyLoader()">&#128203; Copy Script</button>
+      <div class="msg" id="copyMsg" style="display:none"></div>
+      <textarea readonly id="loaderBox" style="margin-top:10px;min-height:0;height:64px;font-size:11px"
+        onclick="this.select()">{{ loader }}</textarea>
+      <div style="margin-top:12px">
+        <a class="btn green" href="https://jntuaceastudents.classattendance.in/"
+           target="_blank" rel="noopener">&#128279; Open Official Portal &rarr;</a>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin-top:12px;line-height:1.6">
+        <b>Bookmark setup:</b> Portal open chesaka &rarr; Chrome &#8942; menu &rarr;
+        <b>&#9733; Bookmark</b> &rarr; save cheyandi. Aa taruvata &#8942; &rarr;
+        <b>Bookmarks</b> &rarr; &#8942; (bookmark meeda) &rarr; <b>Edit</b> &rarr;
+        URL ni delete chesi <b>paste cheyandi</b> (Copy Script button nunchi copy chesindi) &rarr;
+        Save. <b>Okkasari cheste chalu</b> &mdash; taruvata prati roju: portal lo login &rarr;
+        bookmark tap &rarr; attendance!
+      </p>
+    </div>
+  </div>
+
 
   <!-- AUTO SYNC -->
   <div id="panelSync">
@@ -178,17 +213,38 @@ margin-bottom:8px;cursor:pointer}
 var STATE = {name:'', roll:'', subs:[]};
 
 function showTab(t){
+  document.getElementById('panelPortal').style.display = t==='portal' ? '' : 'none';
   document.getElementById('panelSync').style.display = t==='sync' ? '' : 'none';
   document.getElementById('panelEntry').style.display = t==='entry' ? '' : 'none';
   document.getElementById('panelDash').style.display = t==='dash' ? '' : 'none';
   document.getElementById('panelSyncScreen').style.display = 'none';
+  document.getElementById('tabPortal').className = 'tab' + (t==='portal'?' on':'');
   document.getElementById('tabSync').className = 'tab' + (t==='sync'?' on':'');
   document.getElementById('tabEntry').className = 'tab' + (t==='entry'?' on':'');
+}
+
+function copyLoader(){
+  var txt = document.getElementById('loaderBox').value;
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(txt).then(function(){
+      var m = document.getElementById('copyMsg');
+      m.className = 'msg ok';
+      m.textContent = 'Copied! Now: Open Portal -> login -> bookmark create -> Edit URL -> paste -> Save.';
+    }).catch(function(){ selectLoader(); });
+  } else { selectLoader(); }
+}
+function selectLoader(){
+  var b = document.getElementById('loaderBox');
+  b.focus(); b.select();
+  var m = document.getElementById('copyMsg');
+  m.className = 'msg ok';
+  m.textContent = 'Long-press the text above and choose Copy.';
 }
 
 var SYNC_ANIM = null;
 function startSyncAnimation(){
   var total = 8;              // typical subject count; bar fills while waiting
+  document.getElementById('panelPortal').style.display = 'none';
   document.getElementById('panelSync').style.display = 'none';
   document.getElementById('panelEntry').style.display = 'none';
   document.getElementById('panelDash').style.display = 'none';
@@ -455,7 +511,7 @@ if ('serviceWorker' in navigator) {
 
 
 def app_page_html():
-    return APP_HTML
+    return APP_HTML.replace('{{ loader }}', BM_LOADER)
 
 
 def app_sync_json(username, password):
