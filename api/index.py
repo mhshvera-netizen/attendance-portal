@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from flask import Flask, Response, render_template_string, request  # noqa: E402
 
 import app_page  # noqa: E402
+import bm  # noqa: E402
 
 
 
@@ -251,6 +252,8 @@ def index(path):
         pw = (request.form.get('password') or '').strip()
         return Response(_json.dumps(app_page.app_sync_json(u, pw)),
                         mimetype='application/json')
+    if 'bm.js' in p:
+        return Response(bm.bm_js(), mimetype='application/javascript')
     if p == 'app' or p.endswith('/app'):
         return Response(app_page.app_page_html(), mimetype='text/html')
     return Response(render_template_string(LANDING), mimetype='text/html')
