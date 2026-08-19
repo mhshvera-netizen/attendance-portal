@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""The in-browser attendance checker page (no APK needed).
+"""The in-browser attendance checker - ONE clean flow.
 
-Flow (all client-side rendering, works on any phone browser):
-  Tab 1 - Auto Sync:   roll + password -> POST /app/sync -> server logs into
-                       the official portal (works when the portal has no
-                       CAPTCHA) -> JSON -> dashboard.
-  Tab 2 - Quick Entry: type Present/Total per subject -> instant dashboard,
-                       saved in localStorage.
+Screen flow (no tabs, no bookmarks, nothing to install):
+  1. LOGIN  - college username + password (remembered on this device)
+  2. SYNCING - "Reading your semester" with live progress
+  3. DASHBOARD - OVERALL % + SUBJECT-WISE % (all subjects) + tap for log
+
+Auto behavior (user does nothing extra):
+  * saved credentials + portal open  -> syncs automatically on page load
+  * portal CAPTCHA ON                -> the page waits and re-tries by
+    itself every 45 seconds; the moment the portal opens it syncs.
+  * Quick Entry fallback             -> small link, always works
 """
+
 import re
 
 try:
@@ -16,10 +21,6 @@ try:
     HAS_SCRAPER = True
 except Exception:
     HAS_SCRAPER = False
-
-BM_LOADER = ("javascript:(function(){var s=document.createElement('script');"
-             "s.src='https://attendance-portal-uk21.vercel.app/bm.js';"
-             "document.body.appendChild(s);})();")
 
 APP_HTML = r'''<!doctype html>
 <html lang="en">
@@ -39,24 +40,37 @@ color:var(--ink);min-height:100vh;line-height:1.5}
 .top{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
 .top .brand{font-weight:800;color:var(--blue)}
 .top a{font-size:13px;font-weight:700;color:var(--blue);text-decoration:none}
-h1{font-size:24px;letter-spacing:-.02em}
+h1{font-size:23px;letter-spacing:-.02em}
 .sub{color:var(--muted);font-size:13.5px;margin-top:4px}
-.tabs{display:flex;gap:8px;margin:16px 0 12px}
-.tab{flex:1;text-align:center;padding:10px;border-radius:12px;background:var(--card);
-border:1px solid var(--line);font-size:13.5px;font-weight:700;color:var(--muted);cursor:pointer}
-.tab.on{background:var(--blue);color:#fff;border-color:var(--blue)}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:14px 0}
 label{display:block;font-size:11px;font-weight:800;color:var(--muted);letter-spacing:.4px;margin:10px 0 4px}
 input,textarea{width:100%;padding:11px 12px;border:1.5px solid var(--line);border-radius:10px;
 font-size:14px;color:var(--ink);background:#fff;outline:none;font-family:inherit}
 input:focus,textarea:focus{border-color:var(--blue)}
-textarea{min-height:120px}
+textarea{min-height:110px}
 .btn{display:block;width:100%;padding:13px;border:none;border-radius:12px;background:var(--blue);
-color:#fff;font-size:15px;font-weight:800;cursor:pointer;margin-top:14px}
+color:#fff;font-size:15px;font-weight:800;cursor:pointer;margin-top:14px;text-align:center;text-decoration:none}
 .btn.green{background:var(--green)}
+.btn.gray{background:#64748b}
 .msg{display:none;padding:10px 13px;border-radius:10px;font-size:13px;margin-top:10px}
 .msg.err{display:block;background:#FDE8E8;color:#9B1C1C;border:1px solid #F2C4C4}
 .msg.ok{display:block;background:#E7F6EF;color:#046C4E;border:1px solid #BFE6CF}
+.status{display:none;padding:11px 14px;border-radius:12px;font-size:13.5px;font-weight:700;margin-top:12px}
+.status.red{display:block;background:#FDE8E8;color:#9B1C1C;border:1px solid #F2C4C4}
+.status.green{display:block;background:#E7F6EF;color:#046C4E;border:1px solid #BFE6CF}
+.status.gray{display:block;background:#EEF1F6;color:#66748f;border:1px solid #DFE4EC}
+.links{text-align:center;margin-top:14px;font-size:12.5px}
+.links a{color:var(--blue);font-weight:700;text-decoration:none}
+/* syncing overlay */
+#syncOverlay{display:none;position:fixed;inset:0;background:var(--bg);z-index:50;
+text-align:center;padding-top:64px}
+#syncOverlay .big{font-size:42px}
+#syncOverlay .t1{font-size:26px;font-weight:800;letter-spacing:3px;margin-top:14px;color:var(--ink)}
+#syncOverlay .t2{color:var(--muted);margin-top:6px;font-size:14px}
+#syncOverlay .step{margin-top:22px;font-size:16px;font-weight:700;color:var(--blue)}
+#syncOverlay .bar{max-width:280px;margin:12px auto 0;height:8px;background:var(--line);border-radius:6px;overflow:hidden}
+#syncOverlay .bar div{width:0%;height:100%;background:linear-gradient(90deg,#1171e9,#073d92);border-radius:6px;transition:width .3s}
+#syncOverlay .foot{margin-top:24px;font-size:11px;color:var(--muted)}
 /* dashboard */
 .d-name{font-size:21px;font-weight:800;text-transform:uppercase}
 .d-roll{color:var(--muted);font-size:13px;margin-top:2px}
@@ -79,112 +93,53 @@ margin-bottom:8px;cursor:pointer}
 .subj .meta{color:var(--muted);font-size:12px;margin-top:2px}
 .subj .adv{font-size:12px;font-weight:700;margin-top:4px}
 .log{display:none;margin-top:8px;border-top:1px solid var(--line);padding-top:8px}
-.log .li{display:flex;justify-content:space-between;font-size:12.5px;padding:3px 0;color:var(--muted)}
+.log .li{display:flex;justify-content:space-between;font-size:12.5px;padding:3px 0;color:var(--muted);gap:8px}
 .log .li b{color:var(--ink)}
 .btns{display:flex;gap:8px;margin-top:14px}
 .btns .btn{flex:1}
+.hidden{display:none}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="top">
-    <span class="brand">&#127891; JNTUACEA Attendance</span>
-    <a href="/">&larr; Home</a>
-  </div>
-  <h1>Check Your Attendance</h1>
-  <p class="sub">No app download needed &mdash; works right here in your browser.
-  Add this page to your home screen for app-like use.</p>
 
-  <div class="tabs">
-    <div class="tab on" id="tabPortal" onclick="showTab('portal')">&#128273; Portal Route</div>
-    <div class="tab" id="tabSync" onclick="showTab('sync')">&#128260; Auto Sync</div>
-    <div class="tab" id="tabEntry" onclick="showTab('entry')">&#9998; Quick Entry</div>
-  </div>
-
-  <!-- PORTAL ROUTE (CAPTCHA tho official login -> reading semester -> dashboard) -->
-  <div id="panelPortal">
-    <div class="card" style="border:1.5px solid #1171e9">
-      <label style="margin-top:0;font-size:12px">SETUP - OKKASARI (2 min), TARUVATA PRATI ROJU 30 SEC</label>
-      <p style="font-size:14px;color:var(--ink);margin-top:8px;line-height:1.9">
-        <b style="color:#1171e9">Step 1.</b> Kinda <b>&#128203; Copy Script</b> button tap cheyandi.<br>
-        <b style="color:#1171e9">Step 2.</b> <b>&#128279; Open Official Portal</b> button tap chesi
-        <b>login cheyandi</b> (CAPTCHA normal ga complete avthundi).<br>
-        <b style="color:#1171e9">Step 3.</b> Bookmark create &rarr; Edit URL &rarr; paste &rarr; Save.<br>
-        <b style="color:#059669">Then:</b> Portal lo login &rarr; bookmark tap &rarr;
-        <b>&ldquo;Reading your semester&rdquo;</b> &rarr; <b>Overall % + Subject-wise %</b>!
-      </p>
-      <button class="btn" id="copyBtn" onclick="copyLoader()">&#128203; Copy Script</button>
-      <div class="msg" id="copyMsg" style="display:none"></div>
-      <div id="step2Box" style="display:none;margin-top:12px">
-        <a class="btn green" href="https://jntuaceastudents.classattendance.in/"
-           target="_blank" rel="noopener">&#128279; Open Official Portal &rarr; (login cheyandi)</a>
-      </div>
-      <button class="btn" id="doneBtn" onclick="markDone()" style="background:#0a9e63;display:none;margin-top:8px">&#10003; Setup complete</button>
-      <div id="dailyBox" style="display:none;margin-top:14px;background:#E7F6EF;border:1px solid #BFE6CF;border-radius:12px;padding:12px 14px">
-        <b style="color:#046C4E">&#9989; Setup done!</b>
-        <p style="font-size:13px;color:#046C4E;margin:4px 0 0">
-          <b>Prati roju:</b> <a href="https://jntuaceastudents.classattendance.in/"
-          target="_blank" rel="noopener" style="color:#046C4E;font-weight:800">official portal</a> open
-          &rarr; login (CAPTCHA) &rarr; <b>Attendance bookmark</b> tap &rarr;
-          Reading your semester &rarr; Overall % + Subject-wise %!
-        </p>
-      </div>
-      <textarea readonly id="loaderBox" style="margin-top:10px;min-height:0;height:64px;font-size:11px"
-        onclick="this.select()">{{ loader }}</textarea>
-      <div style="margin-top:12px">
-        <a class="btn green" href="https://jntuaceastudents.classattendance.in/"
-           target="_blank" rel="noopener">&#128279; Open Official Portal &rarr;</a>
-      </div>
-      <p style="font-size:12px;color:var(--muted);margin-top:12px;line-height:1.6">
-        <b>Bookmark setup (oka sari):</b><br>
-        &bull; Portal page open ayyaka Chrome &#8942; menu &rarr; <b>&#9733; (star)</b> &rarr;
-        <b>Save</b> &rarr; bookmark name: <b>Attendance</b>.<br>
-        &bull; &#8942; &rarr; <b>Bookmarks</b> &rarr; aa bookmark meeda &#8942; &rarr; <b>Edit</b>.<br>
-        &bull; URL field lo unna text ni <b>delete</b> chesi, <b>paste</b> cheyandi
-        (Step 1 lo copy chesindi) &rarr; <b>Save</b>. Done!<br>
-        &bull; <b>Taruvata prati roju:</b> official portal lo login &rarr; <b>Attendance</b>
-        bookmark tap &rarr; Reading your semester &rarr; attendance!
-      </p>
+  <!-- ============ LOGIN ============ -->
+  <div id="screenLogin">
+    <div class="top">
+      <span class="brand">&#127891; JNTUACEA Attendance</span>
     </div>
-  </div>
+    <h1>Check Your Attendance</h1>
+    <p class="sub">Secure access to your JNTUACEA attendance records &mdash; subject-wise,
+    updated in real time.</p>
 
+    <div class="status gray" id="statusBox">Checking portal&hellip;</div>
 
-  <!-- AUTO SYNC -->
-  <div id="panelSync">
     <div class="card">
       <label>USERNAME (ROLL NUMBER)</label>
-      <input id="syncRoll" placeholder="e.g. 23001A0204">
+      <input id="syncRoll" placeholder="e.g. 23001A0204" autocomplete="username">
       <label>PASSWORD</label>
-      <input id="syncPass" type="password" placeholder="Your college portal password">
+      <input id="syncPass" type="password" placeholder="Your college portal password"
+             autocomplete="current-password">
       <button class="btn" id="syncBtn" onclick="doSync()">Check Attendance &rarr;</button>
-      <button class="btn" id="autoBtn" onclick="toggleAutoWait()"
-        style="background:#64748b;margin-top:8px">&#128276; Wait &amp; Auto-Sync when portal opens</button>
       <div class="msg" id="syncMsg"></div>
-      <div class="msg" id="autoMsg" style="display:block;background:#EEF1F6;color:#66748f;
-        border:1px solid #DFE4EC;margin-top:8px">Portal status: checking&hellip;</div>
       <p style="font-size:11.5px;color:var(--muted);margin-top:10px">
-        We log into the official college portal with your credentials.
-        Your password is never stored. If the portal is showing its CAPTCHA,
-        tap <b>Wait &amp; Auto-Sync</b> &mdash; it checks every 45 seconds and syncs
-        automatically the moment the portal opens. Or use Quick Entry.</p>
+        Your credentials are saved on this device only &mdash; next time the page
+        syncs automatically. Your password is never stored on any server.</p>
+    </div>
+
+    <div class="links">
+      <a href="#" onclick="showEntry();return false;">&#9998; Quick Entry (always works)</a>
+      &nbsp;&middot;&nbsp;
+      <a href="/downloads/app.apk">&#128241; Download Android App</a>
     </div>
   </div>
 
-  <!-- SYNCING SCREEN (APK-style) -->
-  <div id="panelSyncScreen" style="display:none;text-align:center;padding:46px 0">
-    <div style="font-size:44px">&#127891;</div>
-    <div id="syncTitle" style="font-size:30px;font-weight:800;letter-spacing:3px;margin-top:16px;color:#10213d">SYNCING</div>
-    <div style="color:#63728a;font-size:15px;margin-top:8px">Reading your semester</div>
-    <div id="syncStep" style="margin-top:22px;font-size:17px;font-weight:700;color:#1171e9">
-      Processed 0 of 0 subjects &nbsp;0%</div>
-    <div style="max-width:300px;margin:14px auto 0;height:8px;background:#e3ecf7;border-radius:6px;overflow:hidden">
-      <div id="syncBar" style="width:0%;height:100%;background:linear-gradient(90deg,#1171e9,#073d92);border-radius:6px;transition:width .3s"></div>
+  <!-- ============ QUICK ENTRY ============ -->
+  <div id="screenEntry" class="hidden">
+    <div class="top">
+      <span class="brand">&#9998; Quick Entry</span>
+      <a href="#" onclick="showLogin();return false;">&larr; Back</a>
     </div>
-    <div style="margin-top:26px;font-size:11px;color:#63728a">Secure session &middot; jntuaceastudents.classattendance.in</div>
-  </div>
-
-  <!-- QUICK ENTRY -->
-  <div id="panelEntry" style="display:none">
     <div class="card">
       <label>ROLL NUMBER</label>
       <input id="entryRoll" placeholder="e.g. 23001A0204">
@@ -200,8 +155,12 @@ margin-bottom:8px;cursor:pointer}
     </div>
   </div>
 
-  <!-- DASHBOARD -->
-  <div id="panelDash" style="display:none">
+  <!-- ============ DASHBOARD ============ -->
+  <div id="screenDash" class="hidden">
+    <div class="top">
+      <span class="brand">&#127891; JNTUACEA Attendance</span>
+      <a href="#" onclick="showLogin();return false;">Logout</a>
+    </div>
     <div class="d-name" id="dName"></div>
     <div class="d-roll" id="dRoll"></div>
     <div class="ovcard">
@@ -218,87 +177,182 @@ margin-bottom:8px;cursor:pointer}
     <input class="search" id="searchInput" placeholder="Search subject..." onkeyup="filterSubs()">
     <div id="subjList"></div>
     <div class="btns">
-      <button class="btn" onclick="showTab('sync')">&#128260; Re-check</button>
+      <button class="btn" onclick="doSync()">&#128260; Re-check</button>
       <button class="btn green" onclick="window.print()">&#128424; Print</button>
     </div>
   </div>
+</div>
 
-  <p style="text-align:center;margin-top:22px;font-size:11px;color:var(--muted)">
-    &copy; 2026 JNTUACEA Attendance &middot; Secure session &middot; jntuaceastudents.classattendance.in</p>
+<!-- ============ SYNCING OVERLAY ============ -->
+<div id="syncOverlay">
+  <div class="big">&#127891;</div>
+  <div class="t1">SYNCING</div>
+  <div class="t2">Reading your semester</div>
+  <div class="step" id="syncStep">Starting&hellip;</div>
+  <div class="bar"><div id="syncBar"></div></div>
+  <div class="foot">Secure session &middot; jntuaceastudents.classattendance.in</div>
 </div>
 
 <script>
 var STATE = {name:'', roll:'', subs:[]};
 
-function showTab(t){
-  document.getElementById('panelPortal').style.display = t==='portal' ? '' : 'none';
-  document.getElementById('panelSync').style.display = t==='sync' ? '' : 'none';
-  document.getElementById('panelEntry').style.display = t==='entry' ? '' : 'none';
-  document.getElementById('panelDash').style.display = t==='dash' ? '' : 'none';
-  document.getElementById('panelSyncScreen').style.display = 'none';
-  document.getElementById('tabPortal').className = 'tab' + (t==='portal'?' on':'');
-  document.getElementById('tabSync').className = 'tab' + (t==='sync'?' on':'');
-  document.getElementById('tabEntry').className = 'tab' + (t==='entry'?' on':'');
+// ---------------- screens ----------------
+function showLogin(){
+  document.getElementById('screenLogin').classList.remove('hidden');
+  document.getElementById('screenEntry').classList.add('hidden');
+  document.getElementById('screenDash').classList.add('hidden');
+}
+function showEntry(){
+  loadEntryPrefs();
+  document.getElementById('screenLogin').classList.add('hidden');
+  document.getElementById('screenEntry').classList.remove('hidden');
+  document.getElementById('screenDash').classList.add('hidden');
+}
+function showDash(){
+  document.getElementById('screenLogin').classList.add('hidden');
+  document.getElementById('screenEntry').classList.add('hidden');
+  document.getElementById('screenDash').classList.remove('hidden');
 }
 
-function copyLoader(){
-  var txt = document.getElementById('loaderBox').value;
-  var after = function(){
-    document.getElementById('step2Box').style.display = '';
-    document.getElementById('doneBtn').style.display = '';
-    try { localStorage.setItem('jnt_route_copied', '1'); } catch(e){}
-    var m = document.getElementById('copyMsg');
-    m.className = 'msg ok';
-    m.textContent = 'Copied! Ippudu Step 2 (Open Official Portal) tap chesi login cheyandi.';
-  };
-  if (navigator.clipboard && navigator.clipboard.writeText){
-    navigator.clipboard.writeText(txt).then(after).catch(function(){ selectLoader(); after(); });
-  } else { selectLoader(); after(); }
-}
-
-function markDone(){
-  try { localStorage.setItem('jnt_route_done', '1'); } catch(e){}
-  document.getElementById('dailyBox').style.display = '';
-  var m = document.getElementById('copyMsg');
-  m.className = 'msg ok';
-  m.textContent = 'Setup saved on this device. Prati roju flow kinda green box lo undi!';
-}
-function selectLoader(){
-  var b = document.getElementById('loaderBox');
-  b.focus(); b.select();
-  var m = document.getElementById('copyMsg');
-  m.className = 'msg ok';
-  m.textContent = 'Long-press the text above and choose Copy.';
-}
-
-var SYNC_ANIM = null;
-function startSyncAnimation(){
-  var total = 8;              // typical subject count; bar fills while waiting
-  document.getElementById('panelPortal').style.display = 'none';
-  document.getElementById('panelSync').style.display = 'none';
-  document.getElementById('panelEntry').style.display = 'none';
-  document.getElementById('panelDash').style.display = 'none';
-  document.getElementById('panelSyncScreen').style.display = '';
+// ---------------- sync animation ----------------
+var SYNC_TIMER = null;
+function startSync(){
+  var total = 8;
+  document.getElementById('syncOverlay').style.display = 'block';
   var done = 0;
-  var stepEl = document.getElementById('syncStep');
-  var barEl = document.getElementById('syncBar');
-  stepEl.textContent = 'Processed 0 of ' + total + ' subjects  0%';
-  barEl.style.width = '0%';
-  SYNC_ANIM = setInterval(function(){
+  document.getElementById('syncStep').textContent = 'Processed 0 of ' + total + ' subjects  0%';
+  document.getElementById('syncBar').style.width = '0%';
+  SYNC_TIMER = setInterval(function(){
     done = Math.min(total, done + 1);
     var pct = Math.round(done * 100 / total);
-    stepEl.textContent = 'Processed ' + done + ' of ' + total + ' subjects  ' + pct + '%';
-    barEl.style.width = pct + '%';
+    document.getElementById('syncStep').textContent =
+      'Processed ' + done + ' of ' + total + ' subjects  ' + pct + '%';
+    document.getElementById('syncBar').style.width = pct + '%';
   }, 1400);
 }
-function stopSyncAnimation(){
-  if (SYNC_ANIM){ clearInterval(SYNC_ANIM); SYNC_ANIM = null; }
+function stopSync(){
+  if (SYNC_TIMER){ clearInterval(SYNC_TIMER); SYNC_TIMER = null; }
+  document.getElementById('syncOverlay').style.display = 'none';
 }
 
+// ---------------- msg helpers ----------------
 function msg(id, cls, text){
   var m = document.getElementById(id);
   m.className = 'msg ' + cls;
   m.textContent = text;
+  if (cls === 'ok'){ /* keep ok visible */ }
+}
+
+// ---------------- status + auto wait ----------------
+var AUTO = {timer: null};
+
+function setStatus(txt, cls){
+  var b = document.getElementById('statusBox');
+  b.textContent = txt;
+  b.className = 'status ' + cls;
+}
+
+function checkStatus(cb){
+  fetch('/app/status').then(function(r){ return r.json(); }).then(function(d){
+    var now = new Date().toLocaleTimeString();
+    if (d.open){
+      setStatus('\uD83D\uDFE2 Portal is OPEN \u2014 auto-sync works (checked ' + now + ')', 'green');
+    } else if (d.captcha){
+      setStatus('\uD83D\uDD34 Portal CAPTCHA is ON \u2014 page will retry by itself every '
+        + '45s and sync the moment it opens (checked ' + now + ')', 'red');
+    } else {
+      setStatus('\u26AA Could not reach the portal (checked ' + now + ')', 'gray');
+    }
+    if (cb) cb(d);
+  }).catch(function(){
+    setStatus('\u26AA Could not reach the portal.', 'gray');
+    if (cb) cb({open:false});
+  });
+}
+
+function autoWait(){
+  if (AUTO.timer) clearInterval(AUTO.timer);
+  AUTO.timer = setInterval(function(){
+    checkStatus(function(d){
+      if (d.open){
+        clearInterval(AUTO.timer);
+        AUTO.timer = null;
+        var roll = document.getElementById('syncRoll').value.trim().toUpperCase();
+        var pass = document.getElementById('syncPass').value;
+        if (roll.length >= 5 && pass){ doSyncNow(roll, pass, true); }
+      }
+    });
+  }, 45000);
+}
+
+// ---------------- sync ----------------
+function doSync(){
+  var roll = document.getElementById('syncRoll').value.trim().toUpperCase();
+  var pass = document.getElementById('syncPass').value;
+  if (roll.length < 5 || !pass){
+    msg('syncMsg','err','Please enter username and password.');
+    return;
+  }
+  doSyncNow(roll, pass, false);
+}
+
+function doSyncNow(roll, pass, quiet){
+  try {
+    localStorage.setItem('jnt_roll', roll);
+    localStorage.setItem('jnt_pass', pass);
+  } catch(e){}
+  var btn = document.getElementById('syncBtn');
+  btn.disabled = true; btn.textContent = 'Loading\u2026';
+  if (!quiet){ msg('syncMsg','ok',''); }
+  startSync();
+  fetch('/app/sync', {
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:'username='+encodeURIComponent(roll)+'&password='+encodeURIComponent(pass)
+  }).then(function(r){ return r.json(); })
+    .then(function(d){
+      btn.disabled = false; btn.textContent = 'Check Attendance \u2192';
+      stopSync();
+      if (d.error){
+        if (d.error.indexOf('CAPTCHA') >= 0 || d.error.indexOf('verification') >= 0){
+          msg('syncMsg','err', d.error);
+          checkStatus();
+          autoWait();          // nothing for the user to do - page waits itself
+        } else {
+          showLogin();
+          msg('syncMsg','err', d.error);
+        }
+        return;
+      }
+      var rows = (d.subjects||[]).map(function(s){
+        return {name:s.Subject, total:s.total, present:s.present, rows:s.rows||[]};
+      });
+      renderDash(d.name||roll, roll + (d.cls?' : '+d.cls:''), rows,
+        (d.subjects||[]).map(function(s){return s.rows||[];}));
+      if (d.diag && d.diag.length){
+        var dmsg = document.createElement('div');
+        dmsg.style.cssText = 'font-size:11.5px;color:#B45309;background:#FEF3C7;border:1px solid #FDE68A;border-radius:10px;padding:10px 12px;margin-top:14px;white-space:pre-wrap';
+        dmsg.textContent = 'Some subjects returned no data:\n' + d.diag.join('\n')
+          + '\n\nTap Re-check - portal session ok aite anni vastayi.';
+        document.getElementById('subjList').appendChild(dmsg);
+      }
+      showDash();
+    })
+    .catch(function(e){
+      btn.disabled = false; btn.textContent = 'Check Attendance \u2192';
+      stopSync();
+      showLogin();
+      msg('syncMsg','err','Could not connect. Please try again.');
+    });
+}
+
+// ---------------- quick entry ----------------
+function loadEntryPrefs(){
+  try {
+    document.getElementById('entryRoll').value = localStorage.getItem('jnt_eroll')||'';
+    document.getElementById('entryName').value = localStorage.getItem('jnt_ename')||'';
+    document.getElementById('entrySubs').value = localStorage.getItem('jnt_esubs')||'';
+  } catch(e){}
 }
 
 function parseTotals(text){
@@ -337,64 +391,15 @@ function doEntry(){
   var rows = parseTotals(subsText);
   if (!rows.length){ msg('entryMsg','err','No valid lines. Format: Subject Name 6/9 (one per line).'); return; }
   try {
-    localStorage.setItem('jnt_roll', roll);
-    localStorage.setItem('jnt_name', name);
-    localStorage.setItem('jnt_subs', subsText);
+    localStorage.setItem('jnt_eroll', roll);
+    localStorage.setItem('jnt_ename', name);
+    localStorage.setItem('jnt_esubs', subsText);
   } catch(e){}
-  renderDash(name, roll, rows, []);
-  showTab('dash');
+  renderDash(name, roll + ' : B.Tech (JNTUACEA)', rows, []);
+  showDash();
 }
 
-function doSync(){
-  var roll = document.getElementById('syncRoll').value.trim().toUpperCase();
-  var pass = document.getElementById('syncPass').value;
-  if (roll.length < 5 || !pass){ msg('syncMsg','err','Please enter username and password.'); return; }
-  doSyncNow(roll, pass);
-}
-
-function doSyncNow(roll, pass){
-  var btn = document.getElementById('syncBtn');
-  btn.disabled = true; btn.textContent = 'Loading\u2026';
-  msg('syncMsg','ok','');
-  startSyncAnimation();
-  fetch('/app/sync', {
-    method:'POST',
-    headers:{'Content-Type':'application/x-www-form-urlencoded'},
-    body:'username='+encodeURIComponent(roll)+'&password='+encodeURIComponent(pass)
-  }).then(function(r){ return r.json(); })
-    .then(function(d){
-      btn.disabled = false; btn.textContent = 'Check Attendance \u2192';
-      stopSyncAnimation();
-      if (d.error){
-        if (d.error.indexOf('PORTAL-CAPTCHA-ON::') === 0){
-          msg('syncMsg','err', d.error.substring('PORTAL-CAPTCHA-ON::'.length));
-          showTab('portal');
-        } else {
-          showTab('sync');
-          msg('syncMsg','err', d.error);
-        }
-        return;
-      }
-      var rows = (d.subjects||[]).map(function(s){
-        return {name:s.Subject, total:s.total, present:s.present, rows:s.rows||[]};
-      });
-      renderDash(d.name||roll, roll + (d.cls?' : '+d.cls:''), rows, (d.subjects||[]).map(function(s){return s.rows||[];}));
-      if (d.diag && d.diag.length){
-        var dmsg = document.createElement('div');
-        dmsg.style.cssText = 'font-size:11.5px;color:#B45309;background:#FEF3C7;border:1px solid #FDE68A;border-radius:10px;padding:10px 12px;margin-top:14px;white-space:pre-wrap';
-        dmsg.textContent = 'Some subjects returned no data:\n' + d.diag.join('\n') + '\n\nRefresh try cheyandi - portal session ok aite anni vastayi.';
-        document.getElementById('subjList').appendChild(dmsg);
-      }
-      showTab('dash');
-    })
-    .catch(function(e){
-      btn.disabled = false; btn.textContent = 'Check Attendance \u2192';
-      stopSyncAnimation();
-      showTab('sync');
-      msg('syncMsg','err','Could not connect. Please try again or use Quick Entry.');
-    });
-}
-
+// ---------------- dashboard ----------------
 function renderDash(name, roll, rows, rowsBySubj){
   STATE.name = name; STATE.roll = roll;
   var tot = 0, pres = 0;
@@ -403,7 +408,7 @@ function renderDash(name, roll, rows, rowsBySubj){
     return {name:r.name, total:r.total, present:r.present, rows: rowsBySubj[i] || r.rows || []};
   });
   document.getElementById('dName').textContent = name.toUpperCase();
-  document.getElementById('dRoll').textContent = roll + ' : B.Tech \u00B7 JNTUACEA';
+  document.getElementById('dRoll').textContent = roll;
   var pct = tot ? Math.round(pres*1000/tot)/10 : 0;
   var ov = document.getElementById('dOverall');
   ov.textContent = pct + '%';
@@ -430,7 +435,7 @@ function renderDash(name, roll, rows, rowsBySubj){
 function buildSubs(){
   var list = document.getElementById('subjList');
   list.innerHTML = '';
-  STATE.subs.forEach(function(s, idx){
+  STATE.subs.forEach(function(s){
     var pct = s.total ? Math.round(s.present*1000/s.total)/10 : 0;
     var color = s.total ? (pct>=75?'var(--green)':(pct>=60?'var(--amber)':'var(--red)')) : 'var(--muted)';
     var adv;
@@ -474,83 +479,27 @@ function filterSubs(){
   });
 }
 
-// restore quick entry values
-try {
-  document.getElementById('entryRoll').value = localStorage.getItem('jnt_roll')||'';
-  document.getElementById('entryName').value = localStorage.getItem('jnt_name')||'';
-  document.getElementById('entrySubs').value = localStorage.getItem('jnt_subs')||'';
-} catch(e){}
-
-var AUTO = {on:false, timer:null};
-
-function setAutoMsg(t){
-  var m = document.getElementById('autoMsg');
-  m.textContent = t;
-  m.style.display = 'block';
-}
-
-function checkStatus(cb){
-  fetch('/app/status').then(function(r){ return r.json(); }).then(function(d){
-    var now = new Date().toLocaleTimeString();
+// ---------------- init ----------------
+(function init(){
+  try {
+    var roll = localStorage.getItem('jnt_roll') || '';
+    var pass = localStorage.getItem('jnt_pass') || '';
+    if (roll){ document.getElementById('syncRoll').value = roll; }
+    if (pass){ document.getElementById('syncPass').value = pass; }
+  } catch(e){}
+  checkStatus(function(d){
     if (d.open){
-      setAutoMsg('\uD83D\uDFE2 Portal is OPEN (no CAPTCHA) \u2014 checked ' + now);
+      var roll = document.getElementById('syncRoll').value.trim().toUpperCase();
+      var pass = document.getElementById('syncPass').value;
+      if (roll.length >= 5 && pass){
+        // saved credentials + portal open -> sync automatically, no taps
+        doSyncNow(roll, pass, true);
+      }
     } else if (d.captcha){
-      setAutoMsg('\uD83D\uDD34 Portal CAPTCHA is ON \u2014 checked ' + now
-        + (AUTO.on ? ' \u00B7 waiting for it to open\u2026' : ''));
-    } else {
-      setAutoMsg('\u26AA Could not reach the portal \u2014 checked ' + now);
+      autoWait();
     }
-    if (cb) cb(d);
-  }).catch(function(){
-    setAutoMsg('\u26AA Could not reach the portal.');
-    if (cb) cb({open:false});
   });
-}
-
-function toggleAutoWait(){
-  var btn = document.getElementById('autoBtn');
-  if (AUTO.on){
-    AUTO.on = false;
-    if (AUTO.timer) clearInterval(AUTO.timer);
-    btn.textContent = '\uD83D\uDD14 Wait & Auto-Sync when portal opens';
-    setAutoMsg('Auto-wait stopped.');
-    return;
-  }
-  var roll = document.getElementById('syncRoll').value.trim().toUpperCase();
-  var pass = document.getElementById('syncPass').value;
-  if (roll.length < 5 || !pass){
-    msg('syncMsg','err','Enter username + password first, then tap Wait & Auto-Sync.');
-    return;
-  }
-  AUTO.on = true;
-  btn.textContent = '\u23F9 Stop waiting';
-  setAutoMsg('Waiting for the portal CAPTCHA to turn off\u2026 checking every 45 seconds.');
-  var fire = function(d){
-    if (d.open && AUTO.on){
-      AUTO.on = false;
-      if (AUTO.timer) clearInterval(AUTO.timer);
-      btn.textContent = '\uD83D\uDD14 Wait & Auto-Sync when portal opens';
-      doSyncNow(roll, pass);
-      return true;
-    }
-    return false;
-  };
-  checkStatus(fire);
-  AUTO.timer = setInterval(function(){ checkStatus(fire); }, 45000);
-}
-
-checkStatus();
-
-// restore Portal Route setup progress
-try {
-  if (localStorage.getItem('jnt_route_copied') === '1'){
-    document.getElementById('step2Box').style.display = '';
-    document.getElementById('doneBtn').style.display = '';
-  }
-  if (localStorage.getItem('jnt_route_done') === '1'){
-    document.getElementById('dailyBox').style.display = '';
-  }
-} catch(e){}
+})();
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(function(){});
@@ -561,7 +510,7 @@ if ('serviceWorker' in navigator) {
 
 
 def app_page_html():
-    return APP_HTML.replace('{{ loader }}', BM_LOADER)
+    return APP_HTML
 
 
 def app_sync_json(username, password):
@@ -578,16 +527,13 @@ def app_sync_json(username, password):
         msg = str(e)
         if 'no subjects' in msg.lower() or 'route' in msg.lower() or 'missing' in msg.lower():
             return {'error': 'Your login was ACCEPTED, but the portal copy we reached '
-                             'does not host the student pages (the portal runs multiple '
-                             'copies; the one with your data has its CAPTCHA ON for servers). '
-                             'Use the \u201cPortal Route\u201d tab: official website login '
-                             '(CAPTCHA completes on your phone) \u2192 \u201cReading your '
-                             'semester\u201d \u2192 all subject percentages.'}
+                             'does not host the student pages. The page will keep retrying '
+                             'automatically - or use Quick Entry (always works).'}
         if 'CAPTCHA' in msg or 'Use https' in msg or 'verification' in msg:
-            return {'error': 'PORTAL-CAPTCHA-ON::The official portal CAPTCHA is ON right now. '
-                             'Servers cannot pass it - use the \u201cPortal Route\u201d tab: '
-                             'official login (CAPTCHA solves on your phone) \u2192 Reading '
-                             'your semester \u2192 all subjects. Or Quick Entry.'}
+            return {'error': 'CAPTCHA::The official portal CAPTCHA is ON right now. '
+                             'This page will retry by itself every 45 seconds and sync '
+                             'the moment the portal opens - you do not need to do anything. '
+                             'Or use Quick Entry (always works).'}
         if 'rejected' in msg.lower() or 'credential' in msg.lower():
             return {'error': 'Login failed: ' + msg[:160]}
         return {'error': 'Could not connect to the official portal. Try again in a minute.'}
