@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Browser Helper (bookmarklet) script served at /bm.js."""
+"""Browser Helper script (kept for reference; bookmarklet is now self-contained)."""
 BM_JS = r'''// ============================================================
 // JNTUACEA Attendance — Browser Helper (bookmarklet script)
 // Runs INSIDE the official portal page (after you log in).
@@ -12,7 +12,7 @@ BM_JS = r'''// ============================================================
   if (window.__jnBM) return;
   window.__jnBM = true;
 
-  var APP_URL = ((window.__jnApp || 'https://attendance-portal-uk21.vercel.app/app') + '').replace(/[#?].*$/, '');
+  var APP_URL = (window.__jnApp || '__JNAPP__') + '';
 
   function strip(s) {
     return String(s == null ? '' : s).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -308,8 +308,14 @@ BM_JS = r'''// ============================================================
   attachButton();
 
   // Auto-run when the student lands on their home page after login
-  if (/studenthome/i.test(location.href)) {
-    setTimeout(runSync, 600);
+  function looksLoggedIn(){
+    try {
+      var bodyText = document.body ? document.body.innerHTML : '';
+      return /studenthome/i.test(location.href) || /logout/i.test(bodyText) || /my details/i.test(bodyText);
+    } catch(e){ return false; }
+  }
+  if (looksLoggedIn()) {
+    setTimeout(runSync, 700);
   }
 })();
 '''
