@@ -104,12 +104,14 @@ margin-bottom:8px;cursor:pointer}
   <!-- PORTAL ROUTE (CAPTCHA tho official login -> reading semester -> dashboard) -->
   <div id="panelPortal">
     <div class="card" style="border:1.5px solid #1171e9">
-      <label style="margin-top:0">HOW IT WORKS (2 min setup, one time)</label>
-      <p style="font-size:13px;color:var(--muted);margin-top:6px">
-        <b>1.</b> Kinda unna <b>&#128203; Copy Script</b> button tap cheyandi.<br>
-        <b>2.</b> Official portal open chesi login cheyandi (CAPTCHA normal ga complete avthundi).<br>
-        <b>3.</b> Bookmark create chesi &rarr; <b>Attendance</b> bookmark tap cheyandi &rarr;
-        &ldquo;Reading your semester&rdquo; &rarr; <b>Overall % + Subject-wise %</b>!
+      <label style="margin-top:0;font-size:12px">SETUP - OKKASARI (2 min), TARUVATA PRATI ROJU 30 SEC</label>
+      <p style="font-size:14px;color:var(--ink);margin-top:8px;line-height:1.9">
+        <b style="color:#1171e9">Step 1.</b> Kinda <b>&#128203; Copy Script</b> button tap cheyandi.<br>
+        <b style="color:#1171e9">Step 2.</b> <b>&#128279; Open Official Portal</b> button tap chesi
+        <b>login cheyandi</b> (CAPTCHA normal ga complete avthundi).<br>
+        <b style="color:#1171e9">Step 3.</b> Bookmark create &rarr; Edit URL &rarr; paste &rarr; Save.<br>
+        <b style="color:#059669">Then:</b> Portal lo login &rarr; bookmark tap &rarr;
+        <b>&ldquo;Reading your semester&rdquo;</b> &rarr; <b>Overall % + Subject-wise %</b>!
       </p>
       <button class="btn" id="copyBtn" onclick="copyLoader()">&#128203; Copy Script</button>
       <div class="msg" id="copyMsg" style="display:none"></div>
@@ -120,12 +122,14 @@ margin-bottom:8px;cursor:pointer}
            target="_blank" rel="noopener">&#128279; Open Official Portal &rarr;</a>
       </div>
       <p style="font-size:12px;color:var(--muted);margin-top:12px;line-height:1.6">
-        <b>Bookmark setup:</b> Portal open chesaka &rarr; Chrome &#8942; menu &rarr;
-        <b>&#9733; Bookmark</b> &rarr; save cheyandi. Aa taruvata &#8942; &rarr;
-        <b>Bookmarks</b> &rarr; &#8942; (bookmark meeda) &rarr; <b>Edit</b> &rarr;
-        URL ni delete chesi <b>paste cheyandi</b> (Copy Script button nunchi copy chesindi) &rarr;
-        Save. <b>Okkasari cheste chalu</b> &mdash; taruvata prati roju: portal lo login &rarr;
-        bookmark tap &rarr; attendance!
+        <b>Bookmark setup (oka sari):</b><br>
+        &bull; Portal page open ayyaka Chrome &#8942; menu &rarr; <b>&#9733; (star)</b> &rarr;
+        <b>Save</b> &rarr; bookmark name: <b>Attendance</b>.<br>
+        &bull; &#8942; &rarr; <b>Bookmarks</b> &rarr; aa bookmark meeda &#8942; &rarr; <b>Edit</b>.<br>
+        &bull; URL field lo unna text ni <b>delete</b> chesi, <b>paste</b> cheyandi
+        (Step 1 lo copy chesindi) &rarr; <b>Save</b>. Done!<br>
+        &bull; <b>Taruvata prati roju:</b> official portal lo login &rarr; <b>Attendance</b>
+        bookmark tap &rarr; Reading your semester &rarr; attendance!
       </p>
     </div>
   </div>
@@ -335,7 +339,16 @@ function doSyncNow(roll, pass){
     .then(function(d){
       btn.disabled = false; btn.textContent = 'Check Attendance \u2192';
       stopSyncAnimation();
-      if (d.error){ showTab('sync'); msg('syncMsg','err',d.error); return; }
+      if (d.error){
+        if (d.error.indexOf('PORTAL-CAPTCHA-ON::') === 0){
+          msg('syncMsg','err', d.error.substring('PORTAL-CAPTCHA-ON::'.length));
+          showTab('portal');
+        } else {
+          showTab('sync');
+          msg('syncMsg','err', d.error);
+        }
+        return;
+      }
       var rows = (d.subjects||[]).map(function(s){
         return {name:s.Subject, total:s.total, present:s.present, rows:s.rows||[]};
       });
@@ -534,9 +547,10 @@ def app_sync_json(username, password):
                              '(CAPTCHA completes on your phone) \u2192 \u201cReading your '
                              'semester\u201d \u2192 all subject percentages.'}
         if 'CAPTCHA' in msg or 'Use https' in msg or 'verification' in msg:
-            return {'error': 'The official portal CAPTCHA is ON right now. '
-                             'Tap \u201cWait & Auto-Sync\u201d \u2014 it syncs automatically '
-                             'the moment the portal opens. Or use Quick Entry (always works).'}
+            return {'error': 'PORTAL-CAPTCHA-ON::The official portal CAPTCHA is ON right now. '
+                             'Servers cannot pass it - use the \u201cPortal Route\u201d tab: '
+                             'official login (CAPTCHA solves on your phone) \u2192 Reading '
+                             'your semester \u2192 all subjects. Or Quick Entry.'}
         if 'rejected' in msg.lower() or 'credential' in msg.lower():
             return {'error': 'Login failed: ' + msg[:160]}
         return {'error': 'Could not connect to the official portal. Try again in a minute.'}

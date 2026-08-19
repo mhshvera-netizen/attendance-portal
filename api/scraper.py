@@ -164,6 +164,18 @@ def _parse_subject_forms(html):
 
 # ----------------------------------------------------------------- login --
 def student_login(username, password):
+    # Fast check: if the MAIN portal is showing its CAPTCHA, server login is
+    # impossible AND the mirror copies reject/confuse real credentials - so we
+    # stop right here with a clean message instead of "Invalid credentials".
+    try:
+        r0 = requests.get(BASE_URLS[0], timeout=10,
+                          headers={'User-Agent': UA, 'Accept': 'text/html'})
+        if 'cf-turnstile' in (r0.text or ''):
+            raise PortalError('CAPTCHA')
+    except PortalError:
+        raise
+    except Exception:
+        pass
     last = 'All endpoints failed.'
     for base in BASE_URLS:
         session = requests.Session()
